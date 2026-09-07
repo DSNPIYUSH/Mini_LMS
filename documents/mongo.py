@@ -11,7 +11,12 @@ def get_client():
     global _mongo_client
     if _mongo_client is None:
         uri = getattr(settings, 'MONGODB_URI', 'mongodb://localhost:27017/')
-        _mongo_client = pymongo.MongoClient(uri)
+        _mongo_client = pymongo.MongoClient(
+            uri,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=10000
+        )
     return _mongo_client
 
 def get_db():
@@ -50,102 +55,109 @@ def format_file_size(size_bytes):
 # ================= SUBJECTS & FOLDERS MANAGEMENT =================
 
 def ensure_initial_subjects():
-    db = get_db()
-    subj_col = db['subjects']
-    files_col = db['fs.files']
-    
-    # Check if any existing files have subjects not yet in subjects collection
-    existing_subjects = files_col.distinct('subject')
-    for subj in existing_subjects:
-        if subj and not subj_col.find_one({'name': {'$regex': f'^{subj.strip()}$', '$options': 'i'}}):
-            # Find folders used by this subject
-            used_folders = files_col.distinct('folder', {'subject': subj})
-            folders = [f for f in used_folders if f]
-            if not folders:
-                folders = ['General', 'Syllabus', 'Unit 1']
-            subj_col.insert_one({
-                'name': subj.strip(),
-                'description': f'{subj} study materials, lecture slides, and notes.',
-                'folders': folders,
-                'created_at': datetime.utcnow()
-            })
+    try:
+        db = get_db()
+        subj_col = db['subjects']
+        files_col = db['fs.files']
+        
+        # Check if any existing files have subjects not yet in subjects collection
+        existing_subjects = files_col.distinct('subject')
+        for subj in existing_subjects:
+            if subj and not subj_col.find_one({'name': {'$regex': f'^{subj.strip()}$', '$options': 'i'}}):
+                # Find folders used by this subject
+                used_folders = files_col.distinct('folder', {'subject': subj})
+                folders = [f for f in used_folders if f]
+                if not folders:
+                    folders = ['General', 'Syllabus', 'Unit 1']
+                subj_col.insert_one({
+                    'name': subj.strip(),
+                    'description': f'{subj} study materials, lecture slides, and notes.',
+                    'folders': folders,
+                    'created_at': datetime.utcnow()
+                })
 
-    if subj_col.count_documents({}) == 0:
-        default_subjects = [
-            {
-                'name': 'Cloud Computing',
-                'description': 'Virtualization, Cloud Architecture, AWS, Azure, and Distributed Storage.',
-                'folders': ['Syllabus', 'Unit 1 - Architecture', 'Unit 2 - Virtualization', 'Assignments'],
-                'created_at': datetime.utcnow()
-            },
-            {
-                'name': 'Computer Networks',
-                'description': 'OSI model, TCP/IP, routing algorithms, protocol analysis, and socket programming.',
-                'folders': ['Syllabus', 'Unit 1 - Fundamentals', 'Lab Manuals', 'Question Bank'],
-                'created_at': datetime.utcnow()
-            },
-            {
-                'name': 'Operating Systems',
-                'description': 'Process scheduling, concurrency, deadlocks, memory management, and file systems.',
-                'folders': ['Lecture Slides', 'Assignments', 'Lab Codes'],
-                'created_at': datetime.utcnow()
-            },
-            {
-                'name': 'Mathematics',
-                'description': 'Calculus, Linear Algebra, Probability, and Discrete Mathematics.',
-                'folders': ['Formula Sheets', 'Tutorials', 'Previous Exam Papers'],
-                'created_at': datetime.utcnow()
-            }
-        ]
-        subj_col.insert_many(default_subjects)
+        if subj_col.count_documents({}) == 0:
+            default_subjects = [
+                {
+                    'name': 'Cloud Computing',
+                    'description': 'Virtualization, Cloud Architecture, AWS, Azure, and Distributed Storage.',
+                    'folders': ['Syllabus', 'Unit 1 - Architecture', 'Unit 2 - Virtualization', 'Assignments'],
+                    'created_at': datetime.utcnow()
+                },
+                {
+                    'name': 'Computer Networks',
+                    'description': 'OSI model, TCP/IP, routing algorithms, protocol analysis, and socket programming.',
+                    'folders': ['Syllabus', 'Unit 1 - Fundamentals', 'Lab Manuals', 'Question Bank'],
+                    'created_at': datetime.utcnow()
+                },
+                {
+                    'name': 'Operating Systems',
+                    'description': 'Process scheduling, concurrency, deadlocks, memory management, and file systems.',
+                    'folders': ['Lecture Slides', 'Assignments', 'Lab Codes'],
+                    'created_at': datetime.utcnow()
+                },
+                {
+                    'name': 'Mathematics',
+                    'description': 'Calculus, Linear Algebra, Probability, and Discrete Mathematics.',
+                    'folders': ['Formula Sheets', 'Tutorials', 'Previous Exam Papers'],
+                    'created_at': datetime.utcnow()
+                }
+            ]
+            subj_col.insert_many(default_subjects)
+    except Exception as e:
+        print(f"[MongoDB Warning] Could not ensure initial subjects: {e}")
 
 def get_all_subjects_with_stats():
-    ensure_initial_subjects()
-    db = get_db()
-    subj_col = db['subjects']
-    files_col = db['fs.files']
-    
-    subjects = list(subj_col.find().sort('name', pymongo.ASCENDING))
-    results = []
-    
-    for s in subjects:
-        s_name = s['name']
-        folders = s.get('folders', ['General'])
+    try:
+        ensure_initial_subjects()
+        db = get_db()
+        subj_col = db['subjects']
+        files_col = db['fs.files']
         
-        # Count documents in this subject
-        file_count = files_col.count_documents({'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'}})
+        subjects = list(subj_col.find().sort('name', pymongo.ASCENDING))
+        results = []
         
-        # Calculate total size
-        pipeline = [
-            {'$match': {'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'}}},
-            {'$group': {'_id': None, 'total_size': {'$sum': '$length'}}}
-        ]
-        agg_res = list(files_col.aggregate(pipeline))
-        total_size = agg_res[0]['total_size'] if agg_res else 0
-        
-        # Counts per folder
-        folder_stats = []
-        for f_name in folders:
-            f_count = files_col.count_documents({
-                'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'},
-                'folder': {'$regex': f'^{f_name.strip()}$', '$options': 'i'}
-            })
-            folder_stats.append({
-                'name': f_name,
-                'file_count': f_count
-            })
+        for s in subjects:
+            s_name = s['name']
+            folders = s.get('folders', ['General'])
             
-        results.append({
-            'id': str(s['_id']),
-            'name': s_name,
-            'description': s.get('description', ''),
-            'folders': folders,
-            'folder_stats': folder_stats,
-            'file_count': file_count,
-            'total_size': total_size,
-            'total_size_formatted': format_file_size(total_size)
-        })
-    return results
+            # Count documents in this subject
+            file_count = files_col.count_documents({'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'}})
+            
+            # Calculate total size
+            pipeline = [
+                {'$match': {'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'}}},
+                {'$group': {'_id': None, 'total_size': {'$sum': '$length'}}}
+            ]
+            agg_res = list(files_col.aggregate(pipeline))
+            total_size = agg_res[0]['total_size'] if agg_res else 0
+            
+            # Counts per folder
+            folder_stats = []
+            for f_name in folders:
+                f_count = files_col.count_documents({
+                    'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'},
+                    'folder': {'$regex': f'^{f_name.strip()}$', '$options': 'i'}
+                })
+                folder_stats.append({
+                    'name': f_name,
+                    'file_count': f_count
+                })
+                
+            results.append({
+                'id': str(s['_id']),
+                'name': s_name,
+                'description': s.get('description', ''),
+                'folders': folders,
+                'folder_stats': folder_stats,
+                'file_count': file_count,
+                'total_size': total_size,
+                'total_size_formatted': format_file_size(total_size)
+            })
+        return results
+    except Exception as e:
+        print(f"[MongoDB Warning] get_all_subjects_with_stats failed: {e}")
+        return []
 
 def create_subject(name, description=""):
     name = name.strip()
@@ -357,28 +369,38 @@ def list_documents(query=None, subject=None, folder=None, category=None):
     return results
 
 def get_stats():
-    ensure_initial_subjects()
-    db = get_db()
-    files_col = db['fs.files']
-    subj_col = db['subjects']
-    
-    total_docs = files_col.count_documents({})
-    total_subjects = subj_col.count_documents({})
-    
-    pipeline = [
-        {
-            '$group': {
-                '_id': None,
-                'total_bytes': {'$sum': '$length'}
+    try:
+        ensure_initial_subjects()
+        db = get_db()
+        files_col = db['fs.files']
+        subj_col = db['subjects']
+        
+        total_docs = files_col.count_documents({})
+        total_subjects = subj_col.count_documents({})
+        
+        pipeline = [
+            {
+                '$group': {
+                    '_id': None,
+                    'total_bytes': {'$sum': '$length'}
+                }
             }
+        ]
+        agg_res = list(files_col.aggregate(pipeline))
+        total_bytes = agg_res[0]['total_bytes'] if agg_res else 0
+        
+        return {
+            'total_docs': total_docs,
+            'total_subjects': total_subjects,
+            'total_bytes': total_bytes,
+            'total_size_formatted': format_file_size(total_bytes),
         }
-    ]
-    agg_res = list(files_col.aggregate(pipeline))
-    total_bytes = agg_res[0]['total_bytes'] if agg_res else 0
-    
-    return {
-        'total_docs': total_docs,
-        'total_subjects': total_subjects,
-        'total_bytes': total_bytes,
-        'total_size_formatted': format_file_size(total_bytes),
-    }
+    except Exception as e:
+        print(f"[MongoDB Warning] get_stats failed: {e}")
+        return {
+            'total_docs': 0,
+            'total_subjects': 0,
+            'total_bytes': 0,
+            'total_size_formatted': '0 B',
+        }
+
