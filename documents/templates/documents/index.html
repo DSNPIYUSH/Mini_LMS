@@ -1,0 +1,246 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Subject Bank">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'documents/style.css' %}">
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header>
+        <div class="nav-container">
+            <a href="/" class="brand" onclick="showAllSubjectsView(); return false;">
+                <div class="brand-icon">📚</div>
+                <div class="brand-info">
+                    <h1>Subject Bank</h1>
+                    <p><span class="status-dot"></span> Stored in MongoDB GridFS (Direct DB)</p>
+                </div>
+            </a>
+            <div class="nav-actions">
+                <button id="themeToggleBtn" class="theme-toggle-btn" onclick="toggleTheme()" title="Toggle Light / Dark Mode">
+                    <span id="themeIcon">🌙</span> <span id="themeLabel">Dark</span>
+                </button>
+
+                {% if is_admin %}
+                    <span class="admin-badge">🛡️ Admin</span>
+                    <button class="btn btn-primary btn-sm" onclick="openCreateSubjectModal()">
+                        + New Subject
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="openUploadModal()">
+                        + Upload Document
+                    </button>
+                    <a href="{% url 'documents:logout' %}" class="btn btn-secondary btn-sm">
+                        Logout
+                    </a>
+                {% else %}
+                    <a href="{% url 'documents:login' %}" class="btn btn-secondary btn-sm" title="Admin access to upload documents & create folders">
+                        🔐 Admin Login
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Breadcrumb Navigation Bar -->
+        <div class="breadcrumb-bar" id="breadcrumbContainer">
+            <div class="breadcrumb-trail">
+                <span class="breadcrumb-current">📚 All Subjects</span>
+            </div>
+        </div>
+
+        <!-- Quick Search Bar -->
+        <div class="search-container">
+            <div class="search-wrapper">
+                <svg class="search-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" id="searchInput" class="search-input" placeholder="Search subjects, folders, titles, or documents..." oninput="handleSearch()">
+            </div>
+        </div>
+
+        <!-- SECTION 1: ALL SUBJECTS OVERVIEW -->
+        <section id="allSubjectsSection">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                <h2 style="font-size: 1.3rem; font-weight: 700;">Subjects & Course Materials</h2>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">
+                    Select a subject to view its units and folders
+                </div>
+            </div>
+            <div id="subjectsGrid" class="subjects-grid">
+                <!-- Dynamically populated by app.js -->
+            </div>
+        </section>
+
+        <!-- SECTION 2: SUBJECT DETAIL & FOLDERS VIEW -->
+        <section id="subjectDetailSection" style="display: none;">
+            <!-- Folder Filter Tabs -->
+            <div class="folder-filter-bar">
+                <div id="folderPillsContainer" class="folder-pills">
+                    <!-- Injected by app.js -->
+                </div>
+            </div>
+
+            <!-- Documents Grid inside Subject / Folder -->
+            <div id="documentsGrid" class="doc-grid">
+                <!-- Injected by app.js -->
+            </div>
+        </section>
+    </main>
+
+    {% if is_admin %}
+    <!-- Admin: Create Subject Modal -->
+    <div id="createSubjectModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2>Create New Subject / Course</h2>
+                <button class="close-btn" onclick="closeCreateSubjectModal()">&times;</button>
+            </div>
+            <form id="createSubjectForm" onsubmit="handleCreateSubjectSubmit(event)">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label" for="newSubjectName">Subject Name</label>
+                        <input type="text" id="newSubjectName" class="form-input" placeholder="e.g. Artificial Intelligence" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="newSubjectDesc">Description / Syllabus Overview</label>
+                        <textarea id="newSubjectDesc" class="form-input" style="height: 90px; resize: vertical;" placeholder="Brief description of this course and topics covered..."></textarea>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+                        <button type="button" class="btn btn-secondary" onclick="closeCreateSubjectModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Subject</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin: Create Folder Modal -->
+    <div id="createFolderModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2>Create Folder in Subject</h2>
+                <button class="close-btn" onclick="closeCreateFolderModal()">&times;</button>
+            </div>
+            <form id="createFolderForm" onsubmit="handleCreateFolderSubmit(event)">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label" for="folderSubjectSelect">Subject</label>
+                        <select id="folderSubjectSelect" class="form-input" required>
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="newFolderName">Folder Name</label>
+                        <input type="text" id="newFolderName" class="form-input" placeholder="e.g. Unit 2 - Concurrency & Threads" required>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+                        <button type="button" class="btn btn-secondary" onclick="closeCreateFolderModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Folder</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin: Upload Document Modal -->
+    <div id="uploadModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2>Upload Material to Subject Bank</h2>
+                <button class="close-btn" onclick="closeUploadModal()">&times;</button>
+            </div>
+            <form id="uploadForm" onsubmit="handleUploadSubmit(event)">
+                <div class="modal-body">
+                    <!-- Dropzone -->
+                    <div id="dropzone" class="dropzone" onclick="document.getElementById('fileInput').click()">
+                        <div class="dropzone-icon">☁️</div>
+                        <div class="dropzone-text">Click or drag & drop file to upload</div>
+                        <div class="dropzone-sub">Supports PDF, PPTX, Word DOCX, PNG, JPG, WEBP</div>
+                        <input type="file" id="fileInput" style="display: none;" onchange="handleFileSelected(event)" required>
+                    </div>
+
+                    <div id="filePreview" class="file-preview-info">
+                        <div>
+                            <div id="filePreviewName" class="file-preview-name">filename.docx</div>
+                            <div id="filePreviewSize" class="file-preview-size">0 KB</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="clearSelectedFile()">Change</button>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 14px;">
+                        <label class="form-label" for="docTitle">Document Title</label>
+                        <input type="text" id="docTitle" class="form-input" placeholder="e.g. Chapter 1 Architecture Notes">
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="form-group">
+                            <label class="form-label" for="docSubjectSelect">Subject</label>
+                            <select id="docSubjectSelect" class="form-input" onchange="onUploadSubjectChange()" required>
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="docFolderSelect">Folder</label>
+                            <select id="docFolderSelect" class="form-input">
+                                <option value="General">General</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="docTags">Tags (Comma-separated)</label>
+                        <input type="text" id="docTags" class="form-input" placeholder="e.g. syllabus, notes, exam">
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+                        <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+                        <button type="submit" id="btnUploadSubmit" class="btn btn-primary">
+                            Save Directly to MongoDB
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Live Preview Modal (In-Browser Pure White Paper / Slide Deck View) -->
+    <div id="previewModal" class="modal-overlay">
+        <div class="modal-box preview-box">
+            <div class="modal-header">
+                <div class="preview-header-left">
+                    <span id="previewBadge" class="preview-badge badge-type">DOC</span>
+                    <h2 id="previewModalTitle" class="preview-title">Document Preview</h2>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <a id="previewDownloadBtn" href="#" class="btn btn-sm btn-secondary" title="Download backup file">
+                        ⬇️ Download
+                    </a>
+                    <button class="close-btn" onclick="closePreviewModal()">&times;</button>
+                </div>
+            </div>
+            <div id="previewContentArea" class="preview-content">
+                <!-- Dynamically injected PDF, pure white Word doc paper, or PowerPoint slider -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <span id="toastIcon">ℹ️</span>
+        <span id="toastMsg">Notification message</span>
+    </div>
+
+    <script src="{% static 'documents/app.js' %}"></script>
+</body>
+</html>

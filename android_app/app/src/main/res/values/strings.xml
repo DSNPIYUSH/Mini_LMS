@@ -1,0 +1,32 @@
+<resources>
+    <string name="app_name">Subject Bank</string>
+    <string name="academic_vault">Academic Material Vault</string>
+    <string name="search_hint">Search subjects, folders, docs...</string>
+    <string name="server_settings">Server Settings</string>
+    <string name="server_url">Server Base URL</string>
+    <string name="server_url_hint">e.g. http://10.0.2.2:8000 or http://192.168.1.50:8000</string>
+    <string name="default_server_url">http://10.0.2.2:8000</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="login">Admin Login</string>
+    <string name="logout">Log Out</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="viewer_mode">Viewer Mode</string>
+    <string name="admin_mode">Admin Mode</string>
+    <string name="new_subject">+ New Subject</string>
+    <string name="new_folder">+ New Folder</string>
+    <string name="upload_document">Upload Document</string>
+    <string name="subject_name">Subject Name</string>
+    <string name="subject_description">Description</string>
+    <string name="folder_name">Folder Name</string>
+    <string name="select_file">Select File</string>
+    <string name="document_title">Title</string>
+    <string name="tags">Tags (comma separated)</string>
+    <string name="delete">Delete</string>
+    <string name="delete_confirm">Are you sure you want to delete this?</string>
+    <string name="all_folders">All Folders</string>
+    <string name="no_documents">No documents found in this folder.</string>
+    <string name="no_subjects">No subjects found.</string>
+    <string name="loading">Loading...</string>
+</resources>
