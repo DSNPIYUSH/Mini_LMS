@@ -1,0 +1,326 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Step Verification - Subject Bank</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'documents/style.css' %}">
+    <style>
+        .login-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            padding: 24px;
+        }
+
+        .login-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            width: 100%;
+            max-width: 440px;
+            padding: 36px 32px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+            text-align: center;
+        }
+
+        .shield-badge {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 18px;
+            background: #EEF2FF;
+            color: var(--primary);
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+
+        .otp-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 6px;
+        }
+
+        .otp-subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin: 0 0 18px;
+            line-height: 1.5;
+        }
+
+        .phone-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 24px;
+        }
+
+        /* 6-box OTP input grid */
+        .otp-inputs {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .otp-box {
+            width: 48px;
+            height: 56px;
+            text-align: center;
+            font-size: 22px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            background: var(--surface);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            transition: all 0.15s ease;
+        }
+
+        .otp-box:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+        }
+
+        .btn-verify {
+            width: 100%;
+            height: 48px;
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-verify:hover {
+            background: var(--primary-hover);
+        }
+
+        .resend-section {
+            margin-top: 20px;
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+        }
+
+        .resend-btn {
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0;
+            text-decoration: none;
+        }
+
+        .resend-btn:disabled {
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        .countdown-text {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .login-back {
+            margin-top: 24px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+
+        .login-back a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .login-back a:hover {
+            color: var(--primary);
+        }
+
+        .alert-error {
+            background: #FEF2F2;
+            border: 1px solid #FCA5A5;
+            color: #991B1B;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 0.88rem;
+            margin-bottom: 18px;
+            text-align: left;
+        }
+
+        .dev-badge {
+            margin-top: 16px;
+            background: #F8FAFC;
+            border: 1px dashed #CBD5E1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            color: #64748B;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-page">
+        <div class="login-card">
+            
+            <div class="shield-badge">🛡️</div>
+            
+            <h1 class="otp-title">Two-Step Verification</h1>
+            <p class="otp-subtitle">To protect administrator actions, please enter the 6-digit verification code sent to:</p>
+            
+            <div class="phone-chip">
+                📱 <span>{{ masked_phone }}</span>
+            </div>
+
+            {% if error %}
+            <div class="alert-error">
+                ⚠️ {{ error }}
+            </div>
+            {% endif %}
+
+            <form method="POST" id="otpForm" action="{% url 'documents:verify_otp' %}">
+                {% csrf_token %}
+                
+                <input type="hidden" name="otp" id="fullOtpInput">
+
+                <!-- 6 discrete boxes -->
+                <div class="otp-inputs">
+                    <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autofocus>
+                    <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+                    <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+                    <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+                    <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+                    <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+                </div>
+
+                <button type="submit" class="btn-verify" id="verifyBtn">
+                    Verify &amp; Continue →
+                </button>
+            </form>
+
+            <div class="resend-section">
+                <span>Didn't receive the code?</span>
+                <span id="countdownContainer" class="countdown-text">Resend in <strong id="secondsCounter">60</strong>s</span>
+                <a href="{% url 'documents:resend_otp' %}" id="resendLink" class="resend-btn" style="display: none;">Resend OTP</a>
+            </div>
+
+            <div class="dev-badge">
+                💡 <em>OTP validity is 5 minutes. Check your phone SMS or terminal console.</em>
+            </div>
+
+            <div class="login-back">
+                <a href="{% url 'documents:login' %}">← Cancel and return to Login</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Multi-box OTP input logic: Auto-advance, backspace, and paste
+        const inputs = document.querySelectorAll('.otp-box');
+        const hiddenInput = document.getElementById('fullOtpInput');
+        const form = document.getElementById('otpForm');
+
+        inputs.forEach((input, index) => {
+            input.addEventListener('input', (e) => {
+                const val = e.target.value.replace(/\D/g, '');
+                e.target.value = val;
+                
+                if (val && index < inputs.length - 1) {
+                    inputs[index + 1].focus();
+                }
+                syncHiddenInput();
+
+                // Auto submit when all 6 digits entered
+                if (getCombinedValue().length === 6) {
+                    form.submit();
+                }
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                    inputs[index - 1].focus();
+                }
+            });
+
+            // Paste handler for full 6-digit code
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const pasteData = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6);
+                if (pasteData) {
+                    pasteData.split('').forEach((char, i) => {
+                        if (inputs[i]) inputs[i].value = char;
+                    });
+                    syncHiddenInput();
+                    if (pasteData.length === 6) {
+                        inputs[5].focus();
+                        form.submit();
+                    } else if (inputs[pasteData.length]) {
+                        inputs[pasteData.length].focus();
+                    }
+                }
+            });
+        });
+
+        function getCombinedValue() {
+            let combined = '';
+            inputs.forEach(input => combined += input.value);
+            return combined;
+        }
+
+        function syncHiddenInput() {
+            hiddenInput.value = getCombinedValue();
+        }
+
+        form.addEventListener('submit', (e) => {
+            syncHiddenInput();
+            if (hiddenInput.value.length !== 6) {
+                e.preventDefault();
+                alert('Please enter all 6 digits of the verification code.');
+            }
+        });
+
+        // 60-second Resend Cooldown
+        let secondsLeft = 60;
+        const secondsCounter = document.getElementById('secondsCounter');
+        const countdownContainer = document.getElementById('countdownContainer');
+        const resendLink = document.getElementById('resendLink');
+
+        const timer = setInterval(() => {
+            secondsLeft--;
+            if (secondsLeft <= 0) {
+                clearInterval(timer);
+                countdownContainer.style.display = 'none';
+                resendLink.style.display = 'inline';
+            } else {
+                secondsCounter.textContent = secondsLeft;
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

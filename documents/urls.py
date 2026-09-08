@@ -6,11 +6,15 @@ app_name = "documents"
 urlpatterns = [
     path("", views.index_view, name="index"),
     path("login/", views.login_view, name="login"),
+    path("verify-otp/", views.verify_otp_view, name="verify_otp"),
+    path("resend-otp/", views.resend_otp_view, name="resend_otp"),
     path("logout/", views.logout_view, name="logout"),
     path("manifest.json", views.pwa_manifest_view, name="pwa_manifest"),
     
-    # Mobile Auth APIs
+    # Mobile Auth & 2FA APIs
     path("api/auth/login/", views.api_auth_login_view, name="api_auth_login"),
+    path("api/auth/verify-otp/", views.api_auth_verify_otp_view, name="api_auth_verify_otp"),
+    path("api/auth/resend-otp/", views.api_auth_resend_otp_view, name="api_auth_resend_otp"),
     path("api/auth/status/", views.api_auth_status_view, name="api_auth_status"),
     path("api/auth/logout/", views.api_auth_logout_view, name="api_auth_logout"),
     # Subject & Folder APIs

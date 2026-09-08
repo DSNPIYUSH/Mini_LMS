@@ -47,10 +47,20 @@ def run_tests():
     test_admin.save()
 
     login_res = admin_client.post('/login/', {'username': 'testadmin', 'password': 'testpass123'})
-    assert login_res.status_code == 302 # redirect on login
+    assert login_res.status_code == 302 # redirect to /verify-otp/
+    assert '/verify-otp/' in login_res.url
+    
+    # Extract OTP from session and verify
+    otp_code = admin_client.session.get('otp_code')
+    assert otp_code is not None and len(otp_code) == 6
+    r_otp = admin_client.post('/verify-otp/', {'otp': otp_code})
+    assert r_otp.status_code == 302
+    assert r_otp.url == '/'
+
     r_admin_home = admin_client.get('/')
     assert "Logout" in r_admin_home.content.decode('utf-8')
-    print("  [OK] Admin successfully authenticated with custom credentials")
+    print("  [OK] Admin successfully authenticated with 2-Step Verification (Password + OTP)")
+
 
     # 3. Admin creates Subject & Folder
     print("\n--- 3. Testing Subject & Folder Creation by Admin ---")
@@ -129,14 +139,23 @@ def run_tests():
     # Mobile login
     r_mob_login = mobile_client.post('/api/auth/login/', {'username': 'testadmin', 'password': 'testpass123'})
     assert r_mob_login.status_code == 200
-    assert r_mob_login.json()['is_admin'] == True
+    assert r_mob_login.json().get('step') == 'otp_required'
+    mob_otp = mobile_client.session.get('otp_code')
+    assert mob_otp is not None and len(mob_otp) == 6
+
+    # Mobile OTP verify
+    r_mob_verify = mobile_client.post('/api/auth/verify-otp/', {'otp': mob_otp}, content_type='application/json')
+    assert r_mob_verify.status_code == 200
+    assert r_mob_verify.json().get('is_admin') == True
+
     # Mobile status after login
     r_status2 = mobile_client.get('/api/auth/status/')
     assert r_status2.json()['is_admin'] == True
     # Mobile logout
     r_mob_logout = mobile_client.post('/api/auth/logout/')
     assert r_mob_logout.status_code == 200
-    print("  [OK] Mobile JSON REST Auth (login, status, logout) verified successfully!")
+    print("  [OK] Mobile JSON REST 2-Step Auth (login, OTP verify, status, logout) verified successfully!")
+
 
     # Clean up test admin
     test_admin.delete()
