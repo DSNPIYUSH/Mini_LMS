@@ -1,5 +1,7 @@
 # 📚 Subject Bank - Centralized Course Materials Repository
 
+https://mini-lms-sdx6.onrender.com/
+
 A lightweight document management platform where files (PDFs, PPTs, Word documents, images) are stored **directly inside MongoDB using GridFS**, structured hierarchically by **Subject → Folders → Documents**.
 
 The platform features strict role-based access control (RBAC): **Administrators** manage courses, structure folders, and upload materials, while **Viewers** can browse and read documents directly inside their browser or mobile app without downloading files locally.
