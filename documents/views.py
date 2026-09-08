@@ -433,27 +433,53 @@ def api_upload_view(request):
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "POST method required"}, status=405)
     
-    file_obj = request.FILES.get("file")
-    if not file_obj:
-        return JsonResponse({"success": False, "error": "No file uploaded"}, status=400)
+    # Support both single file ('file') and multiple files ('files' or 'file' multiple times)
+    files = request.FILES.getlist("files")
+    if not files:
+        files = request.FILES.getlist("file")
+        
+    if not files:
+        return JsonResponse({"success": False, "error": "No file(s) selected for upload"}, status=400)
     
-    title = request.POST.get("title", "").strip() or file_obj.name
     subject = request.POST.get("subject", "").strip() or "General"
     folder = request.POST.get("folder", "").strip() or "General"
     tags = request.POST.get("tags", "")
+    batch_title = request.POST.get("title", "").strip()
+    
+    saved_ids = []
+    saved_names = []
     
     try:
-        file_id = mongo.save_document(
-            file_obj=file_obj,
-            title=title,
-            subject=subject,
-            folder=folder,
-            tags=tags
-        )
+        for idx, file_obj in enumerate(files):
+            # If a single file and a title was given, use it. Otherwise use the file's original name.
+            if len(files) == 1 and batch_title:
+                doc_title = batch_title
+            elif batch_title and len(files) > 1:
+                # If a batch prefix was provided, format as "Prefix - Filename"
+                doc_title = f"{batch_title} - {file_obj.name}"
+            else:
+                doc_title = file_obj.name
+                
+            file_id = mongo.save_document(
+                file_obj=file_obj,
+                title=doc_title,
+                subject=subject,
+                folder=folder,
+                tags=tags
+            )
+            saved_ids.append(file_id)
+            saved_names.append(file_obj.name)
+            
+        mongo.invalidate_cache()
+        
+        msg = f"Successfully stored {len(saved_ids)} document(s) in {subject} / {folder}!"
         return JsonResponse({
             "success": True,
-            "id": file_id,
-            "message": f"Successfully stored '{file_obj.name}' in {subject} / {folder}!",
+            "count": len(saved_ids),
+            "id": saved_ids[0] if saved_ids else None,
+            "ids": saved_ids,
+            "filenames": saved_names,
+            "message": msg,
         })
     except Exception as e:
         return JsonResponse({"success": False, "error": str(e)}, status=500)

@@ -104,6 +104,29 @@ def run_tests():
     doc_id = r_upload.json()['id']
     print(f"  [OK] Admin uploaded Word doc into '{subj_name} / {folder_name}' -> ID: {doc_id}")
 
+    # 4b. Testing Multi-File Batch Upload by Admin
+    print("\n--- 4b. Testing Multi-File Batch Upload into Subject & Folder ---")
+    file1 = SimpleUploadedFile("Notes_Part1.txt", b"First set of notes on Cloud.", content_type="text/plain")
+    file2 = SimpleUploadedFile("Notes_Part2.txt", b"Second set of notes on Cloud.", content_type="text/plain")
+    file3 = SimpleUploadedFile("Notes_Part3.txt", b"Third set of notes on Cloud.", content_type="text/plain")
+
+    r_multi = admin_client.post('/api/documents/upload/', {
+        'files': [file1, file2, file3],
+        'subject': subj_name,
+        'folder': folder_name,
+        'tags': 'batch,notes'
+    })
+    assert r_multi.status_code == 200
+    multi_res = r_multi.json()
+    assert multi_res['success'] == True
+    assert multi_res['count'] == 3
+    assert len(multi_res['ids']) == 3
+    print(f"  [OK] Admin batch-uploaded 3 files at once -> IDs: {multi_res['ids']}")
+
+    # Clean up multi-uploaded files
+    for fid in multi_res['ids']:
+        admin_client.post(f'/api/documents/{fid}/delete/')
+
     # 5. Viewer Browses Subject, Folder & Previews Document Live
     print("\n--- 5. Testing Viewer Accessing Subject & Viewing Document ---")
     r_docs = viewer_client.get(f'/api/documents/?subject={subj_name}&folder={folder_name}')

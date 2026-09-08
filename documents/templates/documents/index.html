@@ -154,9 +154,9 @@
 
     <!-- Admin: Upload Document Modal -->
     <div id="uploadModal" class="modal-overlay">
-        <div class="modal-box">
+        <div class="modal-box" style="max-width: 580px;">
             <div class="modal-header">
-                <h2>Upload Material to Subject Bank</h2>
+                <h2>Upload Materials to Subject Bank</h2>
                 <button class="close-btn" onclick="closeUploadModal()">&times;</button>
             </div>
             <form id="uploadForm" onsubmit="handleUploadSubmit(event)">
@@ -164,21 +164,30 @@
                     <!-- Dropzone -->
                     <div id="dropzone" class="dropzone" onclick="document.getElementById('fileInput').click()">
                         <div class="dropzone-icon">☁️</div>
-                        <div class="dropzone-text">Click or drag & drop file to upload</div>
-                        <div class="dropzone-sub">Supports PDF, PPTX, Word DOCX, PNG, JPG, WEBP</div>
-                        <input type="file" id="fileInput" style="display: none;" onchange="handleFileSelected(event)" required>
+                        <div class="dropzone-text">Click or drag & drop files here</div>
+                        <div class="dropzone-sub">Upload <strong>single or multiple files at once</strong> (PDF, PPTX, Word DOCX, PNG, JPG)</div>
+                        <input type="file" id="fileInput" style="display: none;" onchange="handleFilesSelected(event)" multiple>
                     </div>
 
-                    <div id="filePreview" class="file-preview-info">
-                        <div>
-                            <div id="filePreviewName" class="file-preview-name">filename.docx</div>
-                            <div id="filePreviewSize" class="file-preview-size">0 KB</div>
+                    <!-- Multiple Files Preview List -->
+                    <div id="filesListContainer" style="display: none; margin-top: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span id="selectedFilesSummary" style="font-weight: 600; font-size: 0.85rem; color: var(--text-color);">0 files selected</span>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('fileInput').click()">+ Add More</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="clearSelectedFiles()">Clear All</button>
+                            </div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-secondary" onclick="clearSelectedFile()">Change</button>
+                        <div id="filesListScroll" class="upload-files-scroll">
+                            <!-- Populated dynamically by app.js -->
+                        </div>
                     </div>
 
                     <div class="form-group" style="margin-top: 14px;">
-                        <label class="form-label" for="docTitle">Document Title</label>
+                        <label class="form-label" for="docTitle">
+                            Document Title / Prefix 
+                            <span id="titleHint" style="font-weight: normal; font-size: 0.75rem; color: var(--text-dim);">(optional - defaults to original filenames)</span>
+                        </label>
                         <input type="text" id="docTitle" class="form-input" placeholder="e.g. Chapter 1 Architecture Notes">
                     </div>
 
@@ -198,8 +207,19 @@
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label" for="docTags">Tags (Comma-separated)</label>
+                        <label class="form-label" for="docTags">Tags (Comma-separated, applied to all)</label>
                         <input type="text" id="docTags" class="form-input" placeholder="e.g. syllabus, notes, exam">
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div id="uploadProgressContainer" style="display: none; margin-top: 14px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                            <span id="uploadProgressText">Storing in MongoDB GridFS...</span>
+                            <span id="uploadProgressPercent">0%</span>
+                        </div>
+                        <div class="upload-progress-track">
+                            <div id="uploadProgressBar" class="upload-progress-fill"></div>
+                        </div>
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">

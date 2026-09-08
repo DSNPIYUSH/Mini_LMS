@@ -2,7 +2,7 @@ let currentSubject = null;
 let currentFolder = 'all';
 let searchQuery = '';
 let searchDebounceTimer = null;
-let selectedFile = null;
+let selectedFiles = [];
 let subjectsList = [];
 let isAdmin = false;
 
@@ -537,13 +537,13 @@ async function deleteFolder(subjectName, folderName, event) {
     }
 }
 
-// Upload Document
+// Upload Documents
 function openUploadModal() {
     openUploadModalFor(currentSubject || '', currentFolder || 'General');
 }
 
 function openUploadModalFor(subjName, folderName) {
-    clearSelectedFile();
+    clearSelectedFiles();
     document.getElementById('docTitle').value = '';
     document.getElementById('docTags').value = '';
     
@@ -560,7 +560,7 @@ function openUploadModalFor(subjName, folderName) {
 
 function closeUploadModal() {
     document.getElementById('uploadModal').classList.remove('active');
-    clearSelectedFile();
+    clearSelectedFiles();
 }
 
 function setupDropzone() {
@@ -586,42 +586,112 @@ function setupDropzone() {
     dropzone.addEventListener('drop', (e) => {
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
-            processSelectedFile(files[0]);
+            addSelectedFiles(Array.from(files));
         }
     });
 }
 
-function handleFileSelected(event) {
+function handleFilesSelected(event) {
     if (event.target.files && event.target.files.length > 0) {
-        processSelectedFile(event.target.files[0]);
+        addSelectedFiles(Array.from(event.target.files));
+        event.target.value = ''; // Reset so the same file can be re-selected if deleted
     }
 }
 
-function processSelectedFile(file) {
-    selectedFile = file;
-    document.getElementById('dropzone').style.display = 'none';
-    const preview = document.getElementById('filePreview');
-    preview.style.display = 'flex';
-    document.getElementById('filePreviewName').textContent = file.name;
-    document.getElementById('filePreviewSize').textContent = formatBytes(file.size);
+function getCategoryIcon(filename) {
+    const fn = (filename || '').toLowerCase();
+    if (fn.endsWith('.pdf')) return '📄';
+    if (fn.endsWith('.pptx') || fn.endsWith('.ppt')) return '📊';
+    if (fn.endsWith('.docx') || fn.endsWith('.doc')) return '📝';
+    if (fn.endsWith('.png') || fn.endsWith('.jpg') || fn.endsWith('.jpeg') || fn.endsWith('.webp') || fn.endsWith('.gif')) return '🖼️';
+    return '📁';
+}
 
+function addSelectedFiles(newFiles) {
+    for (const f of newFiles) {
+        // Prevent exact duplicates
+        const exists = selectedFiles.some(existing => existing.name === f.name && existing.size === f.size);
+        if (!exists) {
+            selectedFiles.push(f);
+        }
+    }
+    renderSelectedFilesList();
+}
+
+function renderSelectedFilesList() {
+    const container = document.getElementById('filesListContainer');
+    const scrollArea = document.getElementById('filesListScroll');
+    const summary = document.getElementById('selectedFilesSummary');
+    const submitBtn = document.getElementById('btnUploadSubmit');
     const titleInput = document.getElementById('docTitle');
-    if (!titleInput.value) {
-        titleInput.value = file.name.replace(/\.[^/.]+$/, "");
+    const titleHint = document.getElementById('titleHint');
+
+    if (selectedFiles.length === 0) {
+        if (container) container.style.display = 'none';
+        if (submitBtn) submitBtn.textContent = 'Save Directly to MongoDB';
+        if (titleHint) titleHint.textContent = '(optional - defaults to original filenames)';
+        return;
+    }
+
+    if (container) container.style.display = 'block';
+
+    const totalBytes = selectedFiles.reduce((acc, f) => acc + f.size, 0);
+    const countText = `${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''} selected (${formatBytes(totalBytes)} total)`;
+    if (summary) summary.textContent = countText;
+
+    if (submitBtn) {
+        submitBtn.textContent = `Save ${selectedFiles.length} File${selectedFiles.length > 1 ? 's' : ''} to MongoDB`;
+    }
+
+    if (selectedFiles.length === 1) {
+        if (!titleInput.value) {
+            titleInput.value = selectedFiles[0].name.replace(/\.[^/.]+$/, "");
+        }
+        if (titleHint) titleHint.textContent = '(custom title or leave blank for filename)';
+    } else {
+        if (titleHint) titleHint.textContent = '(optional prefix: each file keeps its name)';
+    }
+
+    if (scrollArea) {
+        scrollArea.innerHTML = '';
+        selectedFiles.forEach((file, index) => {
+            const row = document.createElement('div');
+            row.className = 'upload-file-item';
+            row.innerHTML = `
+                <div class="upload-file-left">
+                    <span class="upload-file-icon">${getCategoryIcon(file.name)}</span>
+                    <div class="upload-file-meta">
+                        <div class="upload-file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+                        <div class="upload-file-size">${formatBytes(file.size)}</div>
+                    </div>
+                </div>
+                <button type="button" class="upload-file-remove" onclick="removeSelectedFile(${index})" title="Remove file">&times;</button>
+            `;
+            scrollArea.appendChild(row);
+        });
     }
 }
 
-function clearSelectedFile() {
-    selectedFile = null;
-    document.getElementById('fileInput').value = '';
-    document.getElementById('dropzone').style.display = 'block';
-    document.getElementById('filePreview').style.display = 'none';
+function removeSelectedFile(index) {
+    selectedFiles.splice(index, 1);
+    renderSelectedFilesList();
+}
+
+function clearSelectedFiles() {
+    selectedFiles = [];
+    renderSelectedFilesList();
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) fileInput.value = '';
+    const progressContainer = document.getElementById('uploadProgressContainer');
+    if (progressContainer) progressContainer.style.display = 'none';
+    const progressBar = document.getElementById('uploadProgressBar');
+    if (progressBar) progressBar.style.width = '0%';
 }
 
 async function handleUploadSubmit(event) {
     event.preventDefault();
-    if (!selectedFile) {
-        showToast("Please choose a file to upload", "error");
+    if (selectedFiles.length === 0) {
+        showToast("Please select at least one file to upload", "error");
         return;
     }
 
@@ -636,36 +706,75 @@ async function handleUploadSubmit(event) {
     }
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    selectedFiles.forEach(file => {
+        formData.append('files', file);
+    });
+    // Also include 'file' for single-file backwards compatibility
+    if (selectedFiles.length > 0) {
+        formData.append('file', selectedFiles[0]);
+    }
     formData.append('title', title);
     formData.append('subject', subject);
     formData.append('folder', folder || 'General');
     formData.append('tags', tags);
 
     const submitBtn = document.getElementById('btnUploadSubmit');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Storing in MongoDB GridFS...';
+    const progressContainer = document.getElementById('uploadProgressContainer');
+    const progressBar = document.getElementById('uploadProgressBar');
+    const progressPercent = document.getElementById('uploadProgressPercent');
+    const progressText = document.getElementById('uploadProgressText');
 
-    try {
-        const res = await fetch('/api/documents/upload/', {
-            method: 'POST',
-            body: formData
-        });
-        const result = await res.json();
-        if (result.success) {
-            showToast(result.message || "File stored successfully in MongoDB!");
-            closeUploadModal();
-            await loadSubjectsData();
-            openSubjectView(subject, folder || 'all');
-        } else {
-            showToast(result.error || "Failed to upload file", "error");
+    submitBtn.disabled = true;
+    submitBtn.textContent = `Uploading ${selectedFiles.length} file(s)...`;
+    if (progressContainer) progressContainer.style.display = 'block';
+    if (progressBar) progressBar.style.width = '10%';
+    if (progressPercent) progressPercent.textContent = '10%';
+    if (progressText) progressText.textContent = `Uploading ${selectedFiles.length} file(s) to MongoDB...`;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/documents/upload/');
+
+    xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.min(95, Math.round((e.loaded / e.total) * 100));
+            if (progressBar) progressBar.style.width = percent + '%';
+            if (progressPercent) progressPercent.textContent = percent + '%';
+            if (progressText) progressText.textContent = `Uploading ${selectedFiles.length} file(s)... ${percent}%`;
         }
-    } catch (err) {
-        showToast("Error uploading file to database", "error");
-    } finally {
+    };
+
+    xhr.onload = async () => {
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressPercent) progressPercent.textContent = '100%';
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                const result = JSON.parse(xhr.responseText);
+                if (result.success) {
+                    showToast(result.message || `Successfully stored ${selectedFiles.length} file(s) in MongoDB!`);
+                    closeUploadModal();
+                    await loadSubjectsData();
+                    openSubjectView(subject, folder || 'all');
+                } else {
+                    showToast(result.error || "Failed to upload files", "error");
+                }
+            } catch (err) {
+                showToast("Server returned an invalid response", "error");
+            }
+        } else {
+            showToast("Error uploading files to database", "error");
+        }
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Save to MongoDB';
-    }
+        submitBtn.textContent = 'Save Directly to MongoDB';
+    };
+
+    xhr.onerror = () => {
+        showToast("Network error uploading files", "error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save Directly to MongoDB';
+    };
+
+    xhr.send(formData);
 }
 
 async function deleteDocument(id, title) {

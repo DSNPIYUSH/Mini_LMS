@@ -758,6 +758,97 @@ main {
     color: var(--text-muted);
 }
 
+/* Multi-File Upload Styles */
+.upload-files-scroll {
+    max-height: 190px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-right: 4px;
+}
+
+.upload-file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background-color: var(--bg-card-hover);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    gap: 10px;
+    transition: background-color 0.15s ease;
+}
+
+.upload-file-item:hover {
+    background-color: var(--input-bg);
+}
+
+.upload-file-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    overflow: hidden;
+    flex: 1;
+}
+
+.upload-file-icon {
+    font-size: 1.15rem;
+    flex-shrink: 0;
+}
+
+.upload-file-meta {
+    overflow: hidden;
+}
+
+.upload-file-name {
+    font-size: 0.825rem;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 320px;
+}
+
+.upload-file-size {
+    font-size: 0.725rem;
+    color: var(--text-muted);
+}
+
+.upload-file-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.15s;
+    line-height: 1;
+}
+
+.upload-file-remove:hover {
+    color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
+/* Progress Track and Bar */
+.upload-progress-track {
+    width: 100%;
+    height: 7px;
+    background: var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.upload-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary) 0%, #6366f1 100%);
+    transition: width 0.2s ease;
+}
+
 /* ================= PREVIEW VIEWER MODAL ================= */
 .preview-box {
     max-width: 1100px;
