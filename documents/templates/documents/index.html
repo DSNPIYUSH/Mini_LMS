@@ -10,6 +10,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Subject Bank">
     <link rel="manifest" href="/manifest.json">
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -77,7 +79,46 @@
                 </div>
             </div>
             <div id="subjectsGrid" class="subjects-grid">
-                <!-- Dynamically populated by app.js -->
+                <!-- Initial Instant Shimmer Skeletons -->
+                <div class="skeleton-card skeleton-shimmer">
+                    <div style="display: flex; gap: 16px; margin-bottom: 14px;">
+                        <div class="skeleton-box skeleton-icon"></div>
+                        <div style="flex: 1;">
+                            <div class="skeleton-box skeleton-line title"></div>
+                            <div class="skeleton-box skeleton-line subtitle"></div>
+                        </div>
+                    </div>
+                    <div class="skeleton-meta">
+                        <div class="skeleton-box skeleton-badge"></div>
+                        <div class="skeleton-box skeleton-badge"></div>
+                    </div>
+                </div>
+                <div class="skeleton-card skeleton-shimmer">
+                    <div style="display: flex; gap: 16px; margin-bottom: 14px;">
+                        <div class="skeleton-box skeleton-icon"></div>
+                        <div style="flex: 1;">
+                            <div class="skeleton-box skeleton-line title"></div>
+                            <div class="skeleton-box skeleton-line subtitle"></div>
+                        </div>
+                    </div>
+                    <div class="skeleton-meta">
+                        <div class="skeleton-box skeleton-badge"></div>
+                        <div class="skeleton-box skeleton-badge"></div>
+                    </div>
+                </div>
+                <div class="skeleton-card skeleton-shimmer">
+                    <div style="display: flex; gap: 16px; margin-bottom: 14px;">
+                        <div class="skeleton-box skeleton-icon"></div>
+                        <div style="flex: 1;">
+                            <div class="skeleton-box skeleton-line title"></div>
+                            <div class="skeleton-box skeleton-line subtitle"></div>
+                        </div>
+                    </div>
+                    <div class="skeleton-meta">
+                        <div class="skeleton-box skeleton-badge"></div>
+                        <div class="skeleton-box skeleton-badge"></div>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -261,6 +302,6 @@
         <span id="toastMsg">Notification message</span>
     </div>
 
-    <script src="{% static 'documents/app.js' %}"></script>
+    <script src="{% static 'documents/app.js' %}" defer></script>
 </body>
 </html>

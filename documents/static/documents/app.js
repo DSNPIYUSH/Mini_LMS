@@ -178,6 +178,8 @@ function renderSubjectsGrid() {
     filtered.forEach(s => {
         const card = document.createElement('div');
         card.className = 'subject-card';
+        card.onmouseenter = () => prefetchSubject(s.name);
+        card.ontouchstart = () => prefetchSubject(s.name);
         card.onclick = (e) => {
             if (e.target.closest('.btn-delete-subject')) return;
             openSubjectView(s.name);
@@ -278,14 +280,70 @@ function selectFolder(folderName, btn) {
     fetchSubjectDocuments();
 }
 
-async function fetchSubjectDocuments() {
+// Client-Side In-Memory SWR Cache for Instant (0ms) Navigation
+const clientDocCache = new Map();
+
+function getDocCacheKey(subject, folder, query) {
+    return `${(subject || '').toLowerCase()}::${(folder || 'all').toLowerCase()}::${(query || '').toLowerCase()}`;
+}
+
+function renderDocumentsSkeleton() {
     const grid = document.getElementById('documentsGrid');
-    grid.innerHTML = `
-        <div class="empty-state">
-            <div class="spinner" style="margin: 0 auto 16px auto;"></div>
-            <p>Loading files from MongoDB...</p>
-        </div>
-    `;
+    if (!grid) return;
+    let html = '';
+    for (let i = 0; i < 6; i++) {
+        html += `
+            <div class="skeleton-card skeleton-shimmer">
+                <div style="display: flex; gap: 14px; margin-bottom: 14px;">
+                    <div class="skeleton-box" style="width: 44px; height: 44px; border-radius: 10px;"></div>
+                    <div style="flex: 1;">
+                        <div class="skeleton-box skeleton-line title" style="width: 80%;"></div>
+                        <div class="skeleton-box skeleton-line subtitle" style="width: 50%;"></div>
+                    </div>
+                </div>
+                <div class="skeleton-meta" style="margin-top: 10px; padding-top: 10px;">
+                    <div class="skeleton-box skeleton-badge" style="width: 60px;"></div>
+                    <div class="skeleton-box skeleton-badge" style="width: 50px;"></div>
+                </div>
+            </div>
+        `;
+    }
+    grid.innerHTML = html;
+}
+
+function prefetchSubject(subjectName) {
+    if (!subjectName) return;
+    const cacheKey = getDocCacheKey(subjectName, 'all', '');
+    if (clientDocCache.has(cacheKey)) return;
+
+    const params = new URLSearchParams();
+    params.append('subject', subjectName);
+    
+    // Background fetch with priority hint
+    fetch(`/api/documents/?${params.toString()}`, { priority: 'low' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                clientDocCache.set(cacheKey, { data: data.documents, timestamp: Date.now() });
+            }
+        })
+        .catch(() => {});
+}
+
+async function fetchSubjectDocuments(allowCache = true) {
+    const cacheKey = getDocCacheKey(currentSubject, currentFolder, searchQuery);
+
+    // Instant SWR: render from memory in 0ms if previously loaded or prefetched
+    if (allowCache && clientDocCache.has(cacheKey)) {
+        const cached = clientDocCache.get(cacheKey);
+        renderDocumentsGrid(cached.data);
+        // If cache is fresh (< 20 seconds), skip network call completely
+        if (Date.now() - cached.timestamp < 20000) {
+            return;
+        }
+    } else {
+        renderDocumentsSkeleton();
+    }
 
     const params = new URLSearchParams();
     if (currentSubject) params.append('subject', currentSubject);
@@ -296,6 +354,7 @@ async function fetchSubjectDocuments() {
         const res = await fetch(`/api/documents/?${params.toString()}`);
         const data = await res.json();
         if (data.success) {
+            clientDocCache.set(cacheKey, { data: data.documents, timestamp: Date.now() });
             renderDocumentsGrid(data.documents);
         }
     } catch (err) {
@@ -751,6 +810,7 @@ async function handleUploadSubmit(event) {
             try {
                 const result = JSON.parse(xhr.responseText);
                 if (result.success) {
+                    clientDocCache.clear();
                     showToast(result.message || `Successfully stored ${selectedFiles.length} file(s) in MongoDB!`);
                     closeUploadModal();
                     await loadSubjectsData();
@@ -788,9 +848,10 @@ async function deleteDocument(id, title) {
         });
         const result = await res.json();
         if (result.success) {
+            clientDocCache.clear();
             showToast("Document deleted from MongoDB!");
             loadSubjectsData();
-            fetchSubjectDocuments();
+            fetchSubjectDocuments(false);
         } else {
             showToast(result.error || "Failed to delete", "error");
         }

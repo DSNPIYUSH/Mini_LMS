@@ -335,6 +335,8 @@ main {
     box-shadow: var(--shadow);
     cursor: pointer;
     position: relative;
+    content-visibility: auto;
+    contain-intrinsic-size: 0 200px;
 }
 
 .subject-card:hover {
@@ -486,6 +488,8 @@ main {
     justify-content: space-between;
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     box-shadow: var(--shadow);
+    content-visibility: auto;
+    contain-intrinsic-size: 0 180px;
 }
 
 .doc-card:hover {
@@ -1202,3 +1206,89 @@ main {
 
 .toast.success { border-left-color: var(--success); }
 .toast.error { border-left-color: var(--pdf-color); }
+
+/* ================= SKELETON SHIMMER LOADERS ================= */
+.skeleton-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 180px;
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton-shimmer {
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.08) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s infinite linear;
+}
+
+[data-theme="light"] .skeleton-shimmer {
+    background: linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0.03) 0%,
+        rgba(0, 0, 0, 0.08) 50%,
+        rgba(0, 0, 0, 0.03) 100%
+    );
+    background-size: 200% 100%;
+}
+
+@keyframes skeletonShimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.skeleton-box {
+    border-radius: 8px;
+    background-color: var(--bg-card-hover);
+}
+
+.skeleton-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+}
+
+.skeleton-line {
+    height: 14px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.skeleton-line.title {
+    height: 20px;
+    width: 65%;
+    margin-bottom: 12px;
+}
+
+.skeleton-line.subtitle {
+    height: 14px;
+    width: 90%;
+}
+
+.skeleton-line.short {
+    width: 45%;
+}
+
+.skeleton-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.skeleton-badge {
+    height: 24px;
+    width: 70px;
+    border-radius: 6px;
+}
