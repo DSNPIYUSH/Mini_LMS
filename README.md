@@ -1,75 +1,106 @@
 # 📚 Subject Bank - Centralized Course Materials Repository
 
-A document management web application where files (PDFs, PPTs, Word documents, images) are stored **directly inside MongoDB using GridFS**, organized hierarchically by **Subject → Folders → Documents**.
+A lightweight document management platform where files (PDFs, PPTs, Word documents, images) are stored **directly inside MongoDB using GridFS**, structured hierarchically by **Subject → Folders → Documents**.
 
-Features role-based access control where **only the Administrator can create folders and upload files**, while **viewers can browse and read documents live in their browser without downloading**.
+The platform features strict role-based access control (RBAC): **Administrators** manage courses, structure folders, and upload materials, while **Viewers** can browse and read documents directly inside their browser or mobile app without downloading files locally.
 
 ---
 
 ## 🌟 Key Features
 
-1. **Subject & Folder First Architecture**:
-   - Organized intuitively for students and teachers: **Subject** (e.g. *Cloud Computing*) → **Folders** (e.g. *Syllabus*, *Unit 1 - Architecture*, *Lab Manuals*) → **Documents**.
-   - Breadcrumb navigation (`All Subjects > Cloud Computing > Unit 1`).
-2. **Role-Based Access Control**:
-   - **Viewer (Public)**: Can browse subjects, open folders, search, and view all documents. No upload or delete buttons are visible, and API calls from non-admins are rejected (`403 Forbidden`).
-   - **Administrator**: Dedicated login portal (`/login/`) to create new subjects, add folders, upload documents into specific folders, and delete materials.
-3. **Universal In-Browser Live Viewer (Zero Downloads Needed)**:
-   - **Word Documents (`.docx`)**: Rendered as **pure white A4 document pages** with high-contrast dark text, tables, and images.
-   - **PowerPoint Slides (`.pptx`)**: Interactive presentation canvas with slide thumbnails, next/prev controls, and keyboard navigation (`←`, `→`).
-   - **PDFs & Images**: Embedded PDF viewer and image viewer.
-4. **Direct Database Storage with MongoDB GridFS**:
-   - Zero local folder or disk drive storage. Files are broken into 255 KB chunks stored directly in MongoDB (`fs.files` and `fs.chunks`).
+1. **Hierarchical Academic Structure**:
+   - Organized intuitively for students and faculty: **Subject** (e.g., *Cloud Computing*) → **Folders** (e.g., *Syllabus*, *Unit 1 - Architecture*, *Lab Manuals*) → **Documents**.
+   - Built-in breadcrumb navigation (`All Subjects > Cloud Computing > Unit 1`).
+2. **Role-Based Access Control (RBAC)**:
+   - **Viewer (Public)**: Browse subjects, navigate folders, search materials, and view documents live. Administrative actions (upload, edit, delete) are hidden, and unauthorized API requests return `403 Forbidden`.
+   - **Administrator**: Dedicated login portal (`/login/`) to create subjects, manage folders, upload documents, and delete obsolete materials.
+3. **Universal In-Browser Live Previews (Zero Downloads Required)**:
+   - **Word Documents (`.docx`)**: Formatted as clean A4 reading pages with support for tables, images, and typography.
+   - **PowerPoint Presentations (`.pptx`)**: Interactive presentation canvas with slide thumbnails, next/previous buttons, and keyboard controls (`←`, `→`).
+   - **PDFs & Images**: High-performance embedded native viewers.
+4. **Database-Level Storage with MongoDB GridFS**:
+   - Completely eliminates disk file storage dependencies. Files are split into 255 KB binary chunks and stored directly across MongoDB collections (`fs.files` and `fs.chunks`).
 
 ---
 
-## 🔐 Admin Configuration
-Admin credentials can be customized in the [`.env`](.env) file:
-- `ADMIN_USERNAME`: Your chosen admin username
-- `ADMIN_PASSWORD`: Your chosen admin password
+## 🛠️ Tech Stack
 
-Run `python set_admin.py` to sync credentials, or create accounts interactively with:
-```powershell
-.\venv\Scripts\python manage.py createsuperuser
+- **Backend**: Python, Django / Django REST Framework
+- **Database**: MongoDB (via GridFS for binary assets)
+- **Mobile Client**: Native Android (Kotlin, AndroidX, Material 3, Coroutines)
+- **Networking**: Retrofit 2, OkHttp 3 (with session-based auth handling)
+- **Web Frontend**: HTML5, Modern CSS / Tailwind, JavaScript, PWA Manifest
+
+---
+
+## 🔐 Configuration & Environment
+
+Create a `.env` file in the project root:
+
+```env
+DEBUG=True
+SECRET_KEY=your_django_secret_key
+MONGO_URI=mongodb://localhost:27017/
+MONGO_DB_NAME=subject_bank
+ADMIN_USERNAME=your_admin_username
+ADMIN_PASSWORD=your_secure_password
+```
+
+Apply database migrations and initialize credentials:
+
+```bash
+# Windows (PowerShell)
+.\venv\Scripts\activate
+python manage.py migrate
+python set_admin.py
+```
+
+*Or create a superuser interactively:*
+```bash
+python manage.py createsuperuser
 ```
 
 ---
 
-## 🏃 How to Run the Application
+## 🏃 Running the Application
 
-### Option 1: 1-Click Launcher (Windows)
-Double-click **`run_server.bat`** in the project folder. It will launch the server and open your browser automatically at `http://127.0.0.1:8000/`.
+### Option 1: Quick Launcher (Windows)
+Double-click **`run_server.bat`** in the project root. It will boot the server and launch `http://127.0.0.1:8000/` automatically.
 
-### Option 2: Terminal
-```powershell
-cd "c:\Users\dsnpi\OneDrive\Desktop\subject bank"
-.\venv\Scripts\python manage.py runserver 127.0.0.1:8000
+### Option 2: Terminal / CLI
+```bash
+# Activate your virtual environment and start the development server
+python manage.py runserver 0.0.0.0:8000
 ```
+*(Binding to `0.0.0.0` allows devices on your local Wi-Fi, such as your physical Android phone, to connect.)*
 
 ---
 
-## 📱 Android Application
+## 📱 Native Android Application
 
-The project includes a complete native Android application in the [`android_app/`](android_app/) directory:
-- **Language & Framework**: Kotlin, AndroidX, Google Material 3.
-- **Networking**: Retrofit 2 + OkHttp 3 with persistent session cookies for Django authentication.
-- **In-App Document Viewer**: Pure white reading mode for Word (`.docx`), interactive slide carousel for PowerPoint (`.pptx`), and embedded viewers for PDF & Images.
-- **Admin Management**: Mobile login, file picker (`ACTION_GET_CONTENT`) for uploading docs to MongoDB, and folder/subject creation.
-- **Custom Server Address**: In-app settings dialog to easily switch between Android Emulator (`10.0.2.2:8000`) or local Wi-Fi IP (`192.168.X.X:8000`).
+The project includes a companion native Android client located in the [`android_app/`](android_app/) directory:
 
-To open in Android Studio:
-1. Open Android Studio → **Open** → Select `subject bank/android_app`.
-2. Run on emulator or connected phone!
+- **UI & Architecture**: Built with Kotlin and Google Material 3 components.
+- **Networking & Auth**: Retrofit 2 paired with OkHttp 3, maintaining persistent Django session cookies (`sessionid`, `csrftoken`).
+- **File Uploads**: Modern Android Activity Result API (`ActivityResultContracts.GetContent`) for streaming uploads to the backend.
+- **In-App Previews**: Dedicated viewer activities for Word documents, slide decks, PDFs, and graphics.
+- **Flexible Endpoints**: In-app endpoint configuration dialog to toggle seamlessly between:
+  - Android Emulator: `http://10.0.2.2:8000`
+  - Physical Device (LAN): `http://<YOUR_LOCAL_IP>:8000`
 
-You can also install the **Progressive Web App (PWA)** immediately on any Android phone by visiting `http://<your-pc-ip>:8000/` in Chrome and tapping **Add to Home screen**.
+### Setup in Android Studio
+1. Open Android Studio → **Open** → Select the `android_app` directory.
+2. Ensure `android:usesCleartextTraffic="true"` is present in `AndroidManifest.xml` for local HTTP testing.
+3. Sync Gradle and run the project on an emulator or connected physical device.
+
+> **PWA Alternative**: You can also use the web app as a Progressive Web App on mobile by navigating to `http://<YOUR_LOCAL_IP>:8000/` in Chrome and selecting **Add to Home Screen**.
 
 ---
 
-## 🧪 Automated Tests
+## 🧪 Automated Testing
 
-To test the entire backend pipeline (viewer restrictions, mobile JSON auth, admin login, folder creation, uploads, live viewing, and deletion):
+To test authentication restrictions, API responses, GridFS uploads, live preview endpoints, and document deletion:
 
-```powershell
-.\venv\Scripts\python test_system.py
+```bash
+python test_system.py
 ```
-
