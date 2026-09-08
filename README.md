@@ -4,6 +4,7 @@ A lightweight document management platform where files (PDFs, PPTs, Word documen
 
 The platform features strict role-based access control (RBAC): **Administrators** manage courses, structure folders, and upload materials, while **Viewers** can browse and read documents directly inside their browser or mobile app without downloading files locally.
 
+Most of the android studio is done by using vibe coding
 ---
 
 ## 🌟 Key Features
