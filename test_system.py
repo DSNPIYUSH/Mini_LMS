@@ -39,11 +39,18 @@ def run_tests():
 
     # 2. Admin Authentication
     print("\n--- 2. Testing Admin Login ---")
-    login_res = admin_client.post('/login/', {'username': 'admin', 'password': 'admin123'})
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    test_admin, _ = User.objects.get_or_create(username='testadmin', defaults={'email': 'test@example.com', 'is_staff': True, 'is_superuser': True})
+    test_admin.set_password('testpass123')
+    test_admin.is_staff = True
+    test_admin.save()
+
+    login_res = admin_client.post('/login/', {'username': 'testadmin', 'password': 'testpass123'})
     assert login_res.status_code == 302 # redirect on login
     r_admin_home = admin_client.get('/')
     assert "Logout" in r_admin_home.content.decode('utf-8')
-    print("  [OK] Admin successfully authenticated with 'admin' / 'admin123'")
+    print("  [OK] Admin successfully authenticated with custom credentials")
 
     # 3. Admin creates Subject & Folder
     print("\n--- 3. Testing Subject & Folder Creation by Admin ---")
@@ -120,7 +127,7 @@ def run_tests():
     r_status = mobile_client.get('/api/auth/status/')
     assert r_status.json()['is_authenticated'] == False
     # Mobile login
-    r_mob_login = mobile_client.post('/api/auth/login/', {'username': 'admin', 'password': 'admin123'})
+    r_mob_login = mobile_client.post('/api/auth/login/', {'username': 'testadmin', 'password': 'testpass123'})
     assert r_mob_login.status_code == 200
     assert r_mob_login.json()['is_admin'] == True
     # Mobile status after login
@@ -131,7 +138,12 @@ def run_tests():
     assert r_mob_logout.status_code == 200
     print("  [OK] Mobile JSON REST Auth (login, status, logout) verified successfully!")
 
+    # Clean up test admin
+    test_admin.delete()
+    print("  [OK] Cleaned up temporary test admin user")
+
     print("\n=== ALL ROLE-BASED ACCESS, SUBJECT HIERARCHY & MOBILE API TESTS PASSED! ===")
+
 
 if __name__ == '__main__':
     run_tests()

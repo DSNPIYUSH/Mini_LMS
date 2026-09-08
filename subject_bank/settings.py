@@ -20,6 +20,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 import os
+from dotenv import load_dotenv
+
+# Load local .env file if present
+load_dotenv(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-5!o00nr8-m*8=k736&eu-eboz^^=7ii7@m1yq9vp-ddswjw$a=')

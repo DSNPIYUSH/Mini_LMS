@@ -23,11 +23,15 @@ Features role-based access control where **only the Administrator can create fol
 
 ---
 
-## 🔐 Admin Credentials
+## 🔐 Admin Configuration
+Admin credentials can be customized in the [`.env`](.env) file:
+- `ADMIN_USERNAME`: Your chosen admin username
+- `ADMIN_PASSWORD`: Your chosen admin password
 
-- **Login URL**: [http://127.0.0.1:8000/login/](http://127.0.0.1:8000/login/)
-- **Username**: `admin`
-- **Password**: `admin123`
+Run `python set_admin.py` to sync credentials, or create accounts interactively with:
+```powershell
+.\venv\Scripts\python manage.py createsuperuser
+```
 
 ---
 
