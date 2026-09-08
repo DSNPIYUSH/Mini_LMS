@@ -146,6 +146,19 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# In-Memory Cache Configuration for Fast Sub-Millisecond Reads
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'subject-bank-fast-cache',
+        'TIMEOUT': 300,
+    }
+}
+
+# WhiteNoise Optimization: Maximum age caching for static files
+WHITENOISE_MAX_AGE = 31536000  # 1 year cache for static assets
+WHITENOISE_KEEP_ONLY_HASHED_FILES = True
+
 # MongoDB and GridFS Configuration
 import os
 MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')

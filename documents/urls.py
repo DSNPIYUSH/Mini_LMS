@@ -5,6 +5,7 @@ app_name = "documents"
 
 urlpatterns = [
     path("", views.index_view, name="index"),
+    path("health/", views.health_check_view, name="health_check"),
     path("login/", views.login_view, name="login"),
     path("verify-otp/", views.verify_otp_view, name="verify_otp"),
     path("resend-otp/", views.resend_otp_view, name="resend_otp"),

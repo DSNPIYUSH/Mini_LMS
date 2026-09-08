@@ -309,6 +309,10 @@ def pwa_manifest_view(request):
     }
     return JsonResponse(manifest)
 
+def health_check_view(request):
+    """Ultra-fast keep-alive endpoint for cron-job.org / UptimeRobot to keep Render awake 24/7."""
+    return HttpResponse("OK", content_type="text/plain", status=200)
+
 
 # ================= PAGE VIEWS =================
 

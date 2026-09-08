@@ -1,3 +1,4 @@
+import time
 import mimetypes
 from datetime import datetime
 from bson import ObjectId
@@ -6,6 +7,40 @@ from gridfs import GridFS
 from django.conf import settings
 
 _mongo_client = None
+
+# In-memory fast caching for sub-millisecond response
+_cached_subjects = None
+_cached_stats = None
+_cache_timestamp = 0
+_stats_cache_timestamp = 0
+CACHE_TTL = 60  # Cache for 60s, invalidated immediately on any write
+
+_initial_subjects_ensured = False
+_indexes_ensured = False
+
+def invalidate_cache():
+    global _cached_subjects, _cached_stats, _cache_timestamp, _stats_cache_timestamp
+    _cached_subjects = None
+    _cached_stats = None
+    _cache_timestamp = 0
+    _stats_cache_timestamp = 0
+
+def ensure_indexes():
+    global _indexes_ensured
+    if _indexes_ensured:
+        return
+    try:
+        db = get_db()
+        files_col = db['fs.files']
+        subj_col = db['subjects']
+        files_col.create_index([('subject', pymongo.ASCENDING), ('folder', pymongo.ASCENDING)], background=True)
+        files_col.create_index([('uploadDate', pymongo.DESCENDING)], background=True)
+        files_col.create_index([('upload_date', pymongo.DESCENDING)], background=True)
+        files_col.create_index([('category', pymongo.ASCENDING)], background=True)
+        subj_col.create_index([('name', pymongo.ASCENDING)], unique=True, background=True)
+        _indexes_ensured = True
+    except Exception as e:
+        print(f"[MongoDB Warning] Could not ensure indexes: {e}")
 
 def get_client():
     global _mongo_client
@@ -55,6 +90,9 @@ def format_file_size(size_bytes):
 # ================= SUBJECTS & FOLDERS MANAGEMENT =================
 
 def ensure_initial_subjects():
+    global _initial_subjects_ensured
+    if _initial_subjects_ensured:
+        return
     try:
         db = get_db()
         subj_col = db['subjects']
@@ -104,41 +142,66 @@ def ensure_initial_subjects():
                 }
             ]
             subj_col.insert_many(default_subjects)
+        _initial_subjects_ensured = True
     except Exception as e:
         print(f"[MongoDB Warning] Could not ensure initial subjects: {e}")
 
 def get_all_subjects_with_stats():
+    global _cached_subjects, _cache_timestamp
+    now = time.time()
+    if _cached_subjects is not None and (now - _cache_timestamp) < CACHE_TTL:
+        return _cached_subjects
+
     try:
         ensure_initial_subjects()
+        ensure_indexes()
         db = get_db()
         subj_col = db['subjects']
         files_col = db['fs.files']
         
         subjects = list(subj_col.find().sort('name', pymongo.ASCENDING))
-        results = []
         
+        # Single-pass aggregation pipeline to calculate counts & size grouped by subject and folder
+        pipeline = [
+            {
+                '$group': {
+                    '_id': {
+                        'subject': {'$toLower': {'$trim': {'input': {'$ifNull': ['$subject', 'General']}}}},
+                        'folder': {'$toLower': {'$trim': {'input': {'$ifNull': ['$folder', 'General']}}}}
+                    },
+                    'count': {'$sum': 1},
+                    'total_size': {'$sum': '$length'}
+                }
+            }
+        ]
+        agg_res = list(files_col.aggregate(pipeline))
+        
+        # Map stats by subject and folder in RAM (instant)
+        stats_by_subject = {}
+        for item in agg_res:
+            group_id = item.get('_id', {})
+            s_key = (group_id.get('subject') or 'general').strip().lower()
+            f_key = (group_id.get('folder') or 'general').strip().lower()
+            cnt = item.get('count', 0)
+            sz = item.get('total_size', 0)
+            
+            if s_key not in stats_by_subject:
+                stats_by_subject[s_key] = {'count': 0, 'size': 0, 'folders': {}}
+            stats_by_subject[s_key]['count'] += cnt
+            stats_by_subject[s_key]['size'] += sz
+            stats_by_subject[s_key]['folders'][f_key] = stats_by_subject[s_key]['folders'].get(f_key, 0) + cnt
+
+        results = []
         for s in subjects:
             s_name = s['name']
+            s_key = s_name.strip().lower()
             folders = s.get('folders', ['General'])
             
-            # Count documents in this subject
-            file_count = files_col.count_documents({'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'}})
-            
-            # Calculate total size
-            pipeline = [
-                {'$match': {'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'}}},
-                {'$group': {'_id': None, 'total_size': {'$sum': '$length'}}}
-            ]
-            agg_res = list(files_col.aggregate(pipeline))
-            total_size = agg_res[0]['total_size'] if agg_res else 0
-            
-            # Counts per folder
+            subj_stat = stats_by_subject.get(s_key, {'count': 0, 'size': 0, 'folders': {}})
             folder_stats = []
             for f_name in folders:
-                f_count = files_col.count_documents({
-                    'subject': {'$regex': f'^{s_name.strip()}$', '$options': 'i'},
-                    'folder': {'$regex': f'^{f_name.strip()}$', '$options': 'i'}
-                })
+                f_key = f_name.strip().lower()
+                f_count = subj_stat['folders'].get(f_key, 0)
                 folder_stats.append({
                     'name': f_name,
                     'file_count': f_count
@@ -150,10 +213,13 @@ def get_all_subjects_with_stats():
                 'description': s.get('description', ''),
                 'folders': folders,
                 'folder_stats': folder_stats,
-                'file_count': file_count,
-                'total_size': total_size,
-                'total_size_formatted': format_file_size(total_size)
+                'file_count': subj_stat['count'],
+                'total_size': subj_stat['size'],
+                'total_size_formatted': format_file_size(subj_stat['size'])
             })
+            
+        _cached_subjects = results
+        _cache_timestamp = now
         return results
     except Exception as e:
         print(f"[MongoDB Warning] get_all_subjects_with_stats failed: {e}")
@@ -174,6 +240,7 @@ def create_subject(name, description=""):
         'folders': ['General', 'Unit 1', 'Syllabus'],
         'created_at': datetime.utcnow()
     })
+    invalidate_cache()
     return True
 
 def delete_subject(subject_name):
@@ -191,6 +258,7 @@ def delete_subject(subject_name):
             pass
             
     subj_col.delete_one({'name': {'$regex': f'^{subject_name.strip()}$', '$options': 'i'}})
+    invalidate_cache()
     return True
 
 def create_folder(subject_name, folder_name):
@@ -213,6 +281,7 @@ def create_folder(subject_name, folder_name):
         {'_id': subj['_id']},
         {'$push': {'folders': folder_name}}
     )
+    invalidate_cache()
     return True
 
 def delete_folder(subject_name, folder_name):
@@ -240,6 +309,7 @@ def delete_folder(subject_name, folder_name):
         {'_id': subj['_id']},
         {'$pull': {'folders': folder_name}}
     )
+    invalidate_cache()
     return True
 
 # ================= DOCUMENT MANAGEMENT =================
@@ -297,6 +367,7 @@ def save_document(file_obj, title, subject, folder="General", tags=None):
         file_size=file_size,
         upload_date=datetime.utcnow()
     )
+    invalidate_cache()
     return str(file_id)
 
 def get_document(file_id):
@@ -315,6 +386,7 @@ def delete_document(file_id):
         oid = ObjectId(file_id)
         if fs.exists(oid):
             fs.delete(oid)
+            invalidate_cache()
             return True
     except Exception:
         pass
@@ -369,32 +441,41 @@ def list_documents(query=None, subject=None, folder=None, category=None):
     return results
 
 def get_stats():
+    global _cached_stats, _stats_cache_timestamp
+    now = time.time()
+    if _cached_stats is not None and (now - _stats_cache_timestamp) < CACHE_TTL:
+        return _cached_stats
+
     try:
         ensure_initial_subjects()
+        ensure_indexes()
         db = get_db()
         files_col = db['fs.files']
         subj_col = db['subjects']
-        
-        total_docs = files_col.count_documents({})
-        total_subjects = subj_col.count_documents({})
         
         pipeline = [
             {
                 '$group': {
                     '_id': None,
+                    'total_docs': {'$sum': 1},
                     'total_bytes': {'$sum': '$length'}
                 }
             }
         ]
         agg_res = list(files_col.aggregate(pipeline))
-        total_bytes = agg_res[0]['total_bytes'] if agg_res else 0
+        total_docs = agg_res[0].get('total_docs', 0) if agg_res else 0
+        total_bytes = agg_res[0].get('total_bytes', 0) if agg_res else 0
+        total_subjects = subj_col.count_documents({})
         
-        return {
+        res = {
             'total_docs': total_docs,
             'total_subjects': total_subjects,
             'total_bytes': total_bytes,
             'total_size_formatted': format_file_size(total_bytes),
         }
+        _cached_stats = res
+        _stats_cache_timestamp = now
+        return res
     except Exception as e:
         print(f"[MongoDB Warning] get_stats failed: {e}")
         return {

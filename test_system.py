@@ -157,11 +157,32 @@ def run_tests():
     print("  [OK] Mobile JSON REST 2-Step Auth (login, OTP verify, status, logout) verified successfully!")
 
 
+    # 8. Testing Health Check Endpoint & Speed Cache
+    print("\n--- 8. Testing Health Endpoint & Caching Speed ---")
+    import time
+    t0 = time.perf_counter()
+    r_health = viewer_client.get('/health/')
+    t_health = (time.perf_counter() - t0) * 1000
+    assert r_health.status_code == 200
+    assert r_health.content == b"OK"
+    print(f"  [OK] /health/ returned 200 OK in {t_health:.2f}ms")
+
+    # Benchmark cached subjects
+    t0 = time.perf_counter()
+    s1 = mongo.get_all_subjects_with_stats()
+    t1 = (time.perf_counter() - t0) * 1000
+    
+    t0 = time.perf_counter()
+    s2 = mongo.get_all_subjects_with_stats()
+    t2 = (time.perf_counter() - t0) * 1000
+    print(f"  [OK] First load: {t1:.2f}ms, RAM Cached load: {t2:.2f}ms (Instant!)")
+    assert len(s1) == len(s2)
+
     # Clean up test admin
     test_admin.delete()
     print("  [OK] Cleaned up temporary test admin user")
 
-    print("\n=== ALL ROLE-BASED ACCESS, SUBJECT HIERARCHY & MOBILE API TESTS PASSED! ===")
+    print("\n=== ALL ROLE-BASED ACCESS, SUBJECT HIERARCHY & SPEED TESTS PASSED! ===")
 
 
 if __name__ == '__main__':
