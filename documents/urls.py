@@ -31,6 +31,10 @@ urlpatterns = [
     path("api/documents/<str:file_id>/delete/", views.api_delete_view, name="api_delete"),
     path("api/documents/<str:file_id>/preview-content/", views.api_preview_content_view, name="api_preview_content"),
     
+    # Gemini AI Assistant APIs
+    path("api/ai/status/", views.api_ai_status_view, name="api_ai_status"),
+    path("api/ai/chat/", views.api_ai_chat_view, name="api_ai_chat"),
+    
     # Direct streaming
     path("documents/<str:file_id>/view/", views.view_file_inline_view, name="view_file"),
     path("documents/<str:file_id>/download/", views.download_file_view, name="download_file"),

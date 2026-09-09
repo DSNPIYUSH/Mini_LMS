@@ -201,11 +201,36 @@ def run_tests():
     print(f"  [OK] First load: {t1:.2f}ms, RAM Cached load: {t2:.2f}ms (Instant!)")
     assert len(s1) == len(s2)
 
+    # 9. Testing Gemini AI Assistant APIs
+    print("\n--- 9. Testing Gemini AI Academic Tutor APIs ---")
+    r_ai_status = viewer_client.get('/api/ai/status/')
+    assert r_ai_status.status_code == 200
+    ai_status_json = r_ai_status.json()
+    assert ai_status_json.get('success') is True
+    assert 'configured' in ai_status_json
+    assert 'gemini-2.5-flash' in ai_status_json.get('model', '')
+    print(f"  [OK] /api/ai/status/ returned model={ai_status_json.get('model')}, configured={ai_status_json.get('configured')}")
+
+    # Test invalid empty chat request
+    r_ai_bad = viewer_client.post('/api/ai/chat/', {}, content_type='application/json')
+    assert r_ai_bad.status_code == 400
+    print("  [OK] /api/ai/chat/ correctly validated empty prompt requirement (400 Bad Request)")
+
+    # Test valid chat request structure
+    r_ai_chat = viewer_client.post('/api/ai/chat/', {
+        'prompt': 'What are the core properties of relational databases?',
+        'action': 'explain'
+    }, content_type='application/json')
+    assert r_ai_chat.status_code == 200
+    ai_chat_json = r_ai_chat.json()
+    assert 'response' in ai_chat_json
+    print(f"  [OK] /api/ai/chat/ returned valid structured response (configured={ai_chat_json.get('configured')})")
+
     # Clean up test admin
     test_admin.delete()
     print("  [OK] Cleaned up temporary test admin user")
 
-    print("\n=== ALL ROLE-BASED ACCESS, SUBJECT HIERARCHY & SPEED TESTS PASSED! ===")
+    print("\n=== ALL ROLE-BASED ACCESS, SUBJECT HIERARCHY, SPEED & AI TUTOR TESTS PASSED! ===")
 
 
 if __name__ == '__main__':

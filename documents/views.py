@@ -13,6 +13,7 @@ from django.contrib.auth import authenticate, login as auth_login, logout as aut
 from django.views.decorators.csrf import csrf_exempt
 from . import mongo
 from . import otp_service
+from . import gemini_service
 
 # ================= AUTHENTICATION & 2-STEP VERIFICATION VIEWS =================
 
@@ -612,7 +613,8 @@ def api_preview_content_view(request, file_id):
             "type": "pdf",
             "url": view_url,
             "title": title,
-            "filename": grid_out.filename
+            "filename": grid_out.filename,
+            "id": file_id
         })
         
     if category == "image" or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")):
@@ -621,7 +623,8 @@ def api_preview_content_view(request, file_id):
             "type": "image",
             "url": view_url,
             "title": title,
-            "filename": grid_out.filename
+            "filename": grid_out.filename,
+            "id": file_id
         })
 
     # Read binary bytes from GridFS
@@ -636,14 +639,16 @@ def api_preview_content_view(request, file_id):
                 "type": "docx",
                 "html": result.value,
                 "title": title,
-                "filename": grid_out.filename
+                "filename": grid_out.filename,
+                "id": file_id
             })
         except Exception as e:
             return JsonResponse({
                 "success": False,
                 "type": "unsupported",
                 "error": f"Error parsing Word document: {str(e)}",
-                "download_url": download_url
+                "download_url": download_url,
+                "id": file_id
             })
 
     # PowerPoint Presentations
@@ -655,14 +660,16 @@ def api_preview_content_view(request, file_id):
                 "type": "pptx",
                 "slides": slides,
                 "title": title,
-                "filename": grid_out.filename
+                "filename": grid_out.filename,
+                "id": file_id
             })
         except Exception as e:
             return JsonResponse({
                 "success": False,
                 "type": "unsupported",
                 "error": f"Error parsing presentation: {str(e)}",
-                "download_url": download_url
+                "download_url": download_url,
+                "id": file_id
             })
 
     # Plain text / code files
@@ -674,7 +681,8 @@ def api_preview_content_view(request, file_id):
                 "type": "text",
                 "text": text_content,
                 "title": title,
-                "filename": grid_out.filename
+                "filename": grid_out.filename,
+                "id": file_id
             })
         except Exception:
             pass
@@ -685,5 +693,52 @@ def api_preview_content_view(request, file_id):
         "error": "This file format cannot be parsed directly in the browser.",
         "download_url": download_url,
         "title": title,
-        "filename": grid_out.filename
+        "filename": grid_out.filename,
+        "id": file_id
     })
+
+
+# ================= GEMINI AI ACADEMIC TUTOR VIEWS =================
+
+def api_ai_status_view(request):
+    """
+    Returns whether the Gemini API key is configured and active.
+    """
+    configured = gemini_service.is_gemini_configured()
+    return JsonResponse({
+        "success": True,
+        "configured": configured,
+        "model": getattr(gemini_service, "DEFAULT_MODEL", "gemini-2.5-flash")
+    })
+
+@csrf_exempt
+def api_ai_chat_view(request):
+    """
+    AI Academic Tutor query handler. Supports general questions or
+    document-grounded questions/summaries/quizzes/explanations.
+    """
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "POST method required"}, status=405)
+
+    try:
+        if request.content_type and "application/json" in request.content_type:
+            data = json.loads(request.body.decode("utf-8") or "{}")
+        else:
+            data = request.POST
+
+        prompt = (data.get("prompt") or "").strip()
+        file_id = data.get("file_id") or None
+        action = data.get("action") or None
+
+        if not prompt and not action:
+            return JsonResponse({"success": False, "error": "Prompt or action is required."}, status=400)
+
+        result = gemini_service.ask_gemini(prompt=prompt, file_id=file_id, action=action)
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({
+            "success": False,
+            "error": str(e),
+            "response": f"### ⚠️ AI Processing Error\n\n`{str(e)}`"
+        }, status=500)
+

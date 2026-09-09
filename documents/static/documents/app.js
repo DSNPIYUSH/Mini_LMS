@@ -10,11 +10,19 @@ let isAdmin = false;
 let currentSlides = [];
 let activeSlideIndex = 0;
 
+// Preview & Gemini AI Tutor State
+let currentPreviewDocId = null;
+let currentPreviewDocTitle = null;
+let activeAiFileId = null;
+let activeAiDocTitle = null;
+let aiIsLoading = false;
+
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     loadSubjectsData();
     setupDropzone();
     setupKeyboardNav();
+    checkAiStatus();
 });
 
 // Theme Management
@@ -862,6 +870,9 @@ async function deleteDocument(id, title) {
 
 // ================= IN-BROWSER LIVE PREVIEW (NO DOWNLOAD NEEDED) =================
 async function openPreview(id, title) {
+    currentPreviewDocId = id;
+    currentPreviewDocTitle = title;
+    
     const modal = document.getElementById('previewModal');
     const titleEl = document.getElementById('previewModalTitle');
     const area = document.getElementById('previewContentArea');
@@ -1139,3 +1150,284 @@ function escapeJs(str) {
     if (!str) return '';
     return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
+
+// ================= GEMINI AI ACADEMIC TUTOR =================
+
+async function checkAiStatus() {
+    try {
+        const res = await fetch('/api/ai/status/');
+        const data = await res.json();
+        const sub = document.getElementById('aiStatusSubtitle');
+        if (sub) {
+            if (data.configured) {
+                sub.textContent = `Online • ${data.model || 'Gemini 2.5 Flash'}`;
+                sub.style.color = 'var(--success)';
+            } else {
+                sub.textContent = 'API Key Required (Free in Google AI Studio)';
+                sub.style.color = '#ef4444';
+            }
+        }
+    } catch (err) {
+        console.warn("Could not check Gemini AI status:", err);
+    }
+}
+
+function toggleAiDrawer() {
+    const drawer = document.getElementById('aiDrawer');
+    if (drawer && drawer.classList.contains('open')) {
+        closeAiDrawer();
+    } else {
+        openAiDrawer();
+    }
+}
+
+function openAiDrawer() {
+    const drawer = document.getElementById('aiDrawer');
+    const overlay = document.getElementById('aiDrawerOverlay');
+    if (drawer) drawer.classList.add('open');
+    if (overlay) overlay.classList.add('open');
+    
+    // Auto-focus input after transition
+    setTimeout(() => {
+        const input = document.getElementById('aiChatInput');
+        if (input) input.focus();
+    }, 200);
+}
+
+function closeAiDrawer() {
+    const drawer = document.getElementById('aiDrawer');
+    const overlay = document.getElementById('aiDrawerOverlay');
+    if (drawer) drawer.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+}
+
+function openAiForCurrentDoc() {
+    if (currentPreviewDocId) {
+        setAiContext(currentPreviewDocId, currentPreviewDocTitle || 'Active Document');
+    }
+    openAiDrawer();
+}
+
+function setAiContext(fileId, title) {
+    activeAiFileId = fileId;
+    activeAiDocTitle = title;
+    const bar = document.getElementById('aiContextBar');
+    const docName = document.getElementById('aiContextDocName');
+    if (bar && docName) {
+        docName.textContent = title;
+        docName.title = title;
+        bar.style.display = 'flex';
+    }
+}
+
+function clearAiContext() {
+    activeAiFileId = null;
+    activeAiDocTitle = null;
+    const bar = document.getElementById('aiContextBar');
+    if (bar) {
+        bar.style.display = 'none';
+    }
+}
+
+function handleAiTextareaKey(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        handleAiChatSubmit(event);
+    }
+}
+
+async function handleAiChatSubmit(event) {
+    if (event) event.preventDefault();
+    if (aiIsLoading) return;
+
+    const input = document.getElementById('aiChatInput');
+    const promptText = (input.value || '').trim();
+    if (!promptText) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+
+    await sendAiMessage(promptText, null);
+}
+
+async function sendAiAction(action) {
+    if (aiIsLoading) return;
+
+    // If no context explicitly set but preview modal is open, attach it
+    if (!activeAiFileId && currentPreviewDocId) {
+        setAiContext(currentPreviewDocId, currentPreviewDocTitle || 'Active Document');
+    }
+
+    let userLabel = "";
+    if (action === 'summarize') userLabel = "📝 Summarize Document";
+    else if (action === 'quiz') userLabel = "❓ Generate Practice Quiz";
+    else if (action === 'explain') userLabel = "💡 Explain Key Concepts";
+    else userLabel = "Explain topic";
+
+    await sendAiMessage(userLabel, action);
+}
+
+function appendAiMessage(htmlContent, isUser = false) {
+    const container = document.getElementById('aiMessagesContainer');
+    if (!container) return;
+
+    const bubble = document.createElement('div');
+    bubble.className = `ai-bubble ${isUser ? 'ai-bubble-user' : 'ai-bubble-assistant'}`;
+    bubble.innerHTML = htmlContent;
+    container.appendChild(bubble);
+    container.scrollTop = container.scrollHeight;
+}
+
+function showAiTypingIndicator() {
+    const container = document.getElementById('aiMessagesContainer');
+    if (!container) return;
+
+    const indicator = document.createElement('div');
+    indicator.id = 'aiTypingIndicator';
+    indicator.className = 'ai-typing-indicator';
+    indicator.innerHTML = `
+        <div class="ai-typing-dot"></div>
+        <div class="ai-typing-dot"></div>
+        <div class="ai-typing-dot"></div>
+    `;
+    container.appendChild(indicator);
+    container.scrollTop = container.scrollHeight;
+}
+
+function removeAiTypingIndicator() {
+    const indicator = document.getElementById('aiTypingIndicator');
+    if (indicator) indicator.remove();
+}
+
+async function sendAiMessage(promptText, action) {
+    aiIsLoading = true;
+    const sendBtn = document.getElementById('aiSendBtn');
+    const input = document.getElementById('aiChatInput');
+    if (sendBtn) sendBtn.disabled = true;
+    if (input) input.disabled = true;
+
+    // Append user message
+    appendAiMessage(escapeHtml(promptText), true);
+
+    // Show typing indicator
+    showAiTypingIndicator();
+
+    try {
+        const payload = {
+            prompt: promptText,
+            file_id: activeAiFileId,
+            action: action
+        };
+
+        const res = await fetch('/api/ai/chat/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        removeAiTypingIndicator();
+
+        if (data.response) {
+            const formatted = renderSimpleMarkdown(data.response);
+            appendAiMessage(formatted, false);
+        } else if (data.error) {
+            appendAiMessage(`<p style="color: #ef4444;">⚠️ <strong>Error:</strong> ${escapeHtml(data.error)}</p>`, false);
+        } else {
+            appendAiMessage(`<p>Sorry, no response received from Gemini.</p>`, false);
+        }
+
+        if (data.configured !== undefined) {
+            checkAiStatus();
+        }
+
+    } catch (err) {
+        removeAiTypingIndicator();
+        console.error("AI Error:", err);
+        appendAiMessage(`<p style="color: #ef4444;">⚠️ <strong>Network Error:</strong> Could not connect to Gemini service.</p>`, false);
+    } finally {
+        aiIsLoading = false;
+        if (sendBtn) sendBtn.disabled = false;
+        if (input) {
+            input.disabled = false;
+            input.focus();
+        }
+    }
+}
+
+// Lightweight Markdown to HTML Renderer
+function renderSimpleMarkdown(md) {
+    if (!md) return '';
+
+    // First preserve code blocks
+    const codeBlocks = [];
+    let text = md.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+        codeBlocks.push(`<pre><code>${escapeHtml(code.trim())}</code></pre>`);
+        return placeholder;
+    });
+
+    // Escape raw HTML characters outside code blocks
+    text = escapeHtml(text);
+
+    // Headings
+    text = text.replace(/^#### (.*?)$/gm, '<h4>$1</h4>');
+    text = text.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+    text = text.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+    text = text.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+
+    // Horizontal Rule
+    text = text.replace(/^---$/gm, '<hr>');
+
+    // Bold and Italic
+    text = text.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Inline code
+    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Blockquotes
+    text = text.replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>');
+
+    // Markdown links [text](url)
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: underline;">$1</a>');
+
+    // Unordered lists
+    text = text.replace(/(?:^[ \t]*[\*\-\+] .*(?:\n|$))+/gm, (listMatch) => {
+        const items = listMatch.trim().split('\n').map(line => {
+            const clean = line.replace(/^[ \t]*[\*\-\+] /, '');
+            return `<li>${clean}</li>`;
+        }).join('');
+        return `<ul>${items}</ul>`;
+    });
+
+    // Numbered lists
+    text = text.replace(/(?:^[ \t]*\d+\. .*(?:\n|$))+/gm, (listMatch) => {
+        const items = listMatch.trim().split('\n').map(line => {
+            const clean = line.replace(/^[ \t]*\d+\. /, '');
+            return `<li>${clean}</li>`;
+        }).join('');
+        return `<ol>${items}</ol>`;
+    });
+
+    // Paragraphs / line breaks
+    text = text.replace(/\n\n+/g, '</p><p>');
+    text = `<p>${text}</p>`;
+    text = text.replace(/<p><\/p>/g, '');
+    text = text.replace(/<p>(<h[1-4]>)/g, '$1');
+    text = text.replace(/(<\/h[1-4]>)<\/p>/g, '$1');
+    text = text.replace(/<p>(<ul>|<ol>|<pre>|<blockquote>|<hr>)/g, '$1');
+    text = text.replace(/(<\/ul>|<\/ol>|<\/pre>|<\/blockquote>|<hr>)<\/p>/g, '$1');
+    text = text.replace(/\n/g, '<br>');
+
+    // Restore code blocks
+    codeBlocks.forEach((cb, idx) => {
+        text = text.replace(`__CODE_BLOCK_${idx}__`, cb);
+    });
+
+    return text;
+}
+

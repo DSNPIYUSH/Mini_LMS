@@ -283,7 +283,10 @@
                     <span id="previewBadge" class="preview-badge badge-type">DOC</span>
                     <h2 id="previewModalTitle" class="preview-title">Document Preview</h2>
                 </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button id="previewAiBtn" class="btn btn-sm btn-primary ai-sparkle-btn" onclick="openAiForCurrentDoc()" title="Study this document with Gemini AI">
+                        ✨ Ask AI
+                    </button>
                     <a id="previewDownloadBtn" href="#" class="btn btn-sm btn-secondary" title="Download backup file">
                         ⬇️ Download
                     </a>
@@ -295,6 +298,79 @@
             </div>
         </div>
     </div>
+
+    <!-- Global AI Tutor Floating Action Button -->
+    <button id="aiFabBtn" class="ai-fab-btn" onclick="toggleAiDrawer()" title="Open Gemini AI Study Assistant">
+        <span class="ai-fab-sparkle">✨</span>
+        <span class="ai-fab-text">Ask AI Tutor</span>
+    </button>
+
+    <!-- Slide-out AI Assistant Drawer -->
+    <div id="aiDrawerOverlay" class="ai-drawer-overlay" onclick="closeAiDrawer()"></div>
+    <aside id="aiDrawer" class="ai-drawer" aria-label="AI Study Assistant">
+        <div class="ai-drawer-header">
+            <div class="ai-drawer-title-group">
+                <div class="ai-avatar">✨</div>
+                <div>
+                    <h3 class="ai-drawer-title">Gemini AI Study Tutor</h3>
+                    <span class="ai-drawer-subtitle" id="aiStatusSubtitle">Powered by Google Gemini 2.5 Flash</span>
+                </div>
+            </div>
+            <button class="ai-close-btn" onclick="closeAiDrawer()" title="Close Assistant">&times;</button>
+        </div>
+
+        <!-- Active Document Context Bar (if attached) -->
+        <div id="aiContextBar" class="ai-context-bar" style="display: none;">
+            <div class="ai-context-content">
+                <span class="ai-context-icon">📄</span>
+                <span class="ai-context-label">Studying:</span>
+                <span id="aiContextDocName" class="ai-context-doc-name">Document.pdf</span>
+            </div>
+            <button class="ai-context-clear-btn" onclick="clearAiContext()" title="Detach document context">&times;</button>
+        </div>
+
+        <!-- Quick Action Suggestion Chips -->
+        <div class="ai-quick-actions" id="aiQuickActions">
+            <button class="ai-action-chip" onclick="sendAiAction('summarize')">
+                📝 Summarize
+            </button>
+            <button class="ai-action-chip" onclick="sendAiAction('quiz')">
+                ❓ Practice Quiz
+            </button>
+            <button class="ai-action-chip" onclick="sendAiAction('explain')">
+                💡 Key Concepts
+            </button>
+        </div>
+
+        <!-- Messages Container -->
+        <div id="aiMessagesContainer" class="ai-messages-container">
+            <div class="ai-bubble ai-bubble-assistant">
+                <p>👋 <strong>Hello! I'm your Gemini AI Academic Tutor.</strong></p>
+                <p>I can help you analyze documents, generate practice quizzes, break down complex topics, and answer exam questions.</p>
+                <p class="ai-bubble-hint">💡 <em>Tip: Open any document preview and click <strong>"✨ Ask AI"</strong> to ground answers in that document!</em></p>
+            </div>
+        </div>
+
+        <!-- Input Box -->
+        <div class="ai-input-area">
+            <form id="aiChatForm" onsubmit="handleAiChatSubmit(event)">
+                <div class="ai-input-wrapper">
+                    <textarea 
+                        id="aiChatInput" 
+                        class="ai-chat-textarea" 
+                        rows="1" 
+                        placeholder="Ask anything or request notes..." 
+                        onkeydown="handleAiTextareaKey(event)"
+                    ></textarea>
+                    <button type="submit" id="aiSendBtn" class="ai-send-btn" title="Send Question">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </aside>
 
     <!-- Toast Notification -->
     <div id="toast" class="toast">
