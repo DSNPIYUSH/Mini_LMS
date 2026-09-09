@@ -1160,7 +1160,7 @@ async function checkAiStatus() {
         const sub = document.getElementById('aiStatusSubtitle');
         if (sub) {
             if (data.configured) {
-                sub.textContent = `Online • ${data.model || 'Gemini 2.5 Flash'}`;
+                sub.textContent = `Online • ${data.model || 'Gemini 3.6 Flash'}`;
                 sub.style.color = 'var(--success)';
             } else {
                 sub.textContent = 'API Key Required (Free in Google AI Studio)';

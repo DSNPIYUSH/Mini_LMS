@@ -1,5 +1,6 @@
 import os
 import io
+import base64
 from google import genai
 from google.genai import types
 from docx import Document
@@ -7,7 +8,17 @@ from pptx import Presentation
 import mammoth
 from . import mongo
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEFAULT_MODEL = "gemini-3.6-flash"
+
+def get_effective_model():
+    """
+    Returns the target model, automatically upgrading legacy models (e.g. 2.5/2.0/1.5)
+    to the latest supported gemini-3.6-flash / gemini-3.7-flash.
+    """
+    m = os.getenv("GEMINI_MODEL", DEFAULT_MODEL).strip()
+    if not m or any(legacy in m for legacy in ["gemini-2.5", "gemini-2.0", "gemini-1.5"]):
+        return "gemini-3.6-flash"
+    return m
 
 def get_api_key():
     return os.getenv("GEMINI_API_KEY", "").strip()
@@ -28,15 +39,15 @@ def get_client():
 def extract_document_context(file_id):
     """
     Extracts text or binary part from a document stored in MongoDB GridFS.
-    Returns: (payload, is_multimodal_part, doc_meta)
+    Returns: (payload, is_multimodal_part, doc_meta, raw_bytes, mime_type)
     """
     if not file_id:
-        return None, False, None
+        return None, False, None, None, None
         
     try:
         grid_out = mongo.get_document(file_id)
         if not grid_out:
-            return None, False, None
+            return None, False, None, None, None
             
         filename = (grid_out.filename or "").lower()
         title = getattr(grid_out, "title", grid_out.filename)
@@ -58,7 +69,7 @@ def extract_document_context(file_id):
         # 1. PDF - native multimodal input to Gemini
         if category == "pdf" or filename.endswith(".pdf"):
             part = types.Part.from_bytes(data=file_bytes, mime_type="application/pdf")
-            return part, True, doc_meta
+            return part, True, doc_meta, file_bytes, "application/pdf"
             
         # 2. Images - native multimodal input
         if category == "image" or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
@@ -66,22 +77,22 @@ def extract_document_context(file_id):
             if "image" not in content_type:
                 content_type = "image/png"
             part = types.Part.from_bytes(data=file_bytes, mime_type=content_type)
-            return part, True, doc_meta
+            return part, True, doc_meta, file_bytes, content_type
             
         # 3. Word DOCX - extract text
         if filename.endswith(".docx"):
             try:
                 raw_text = mammoth.extract_raw_text(io.BytesIO(file_bytes)).value
                 if raw_text.strip():
-                    return raw_text, False, doc_meta
+                    return raw_text, False, doc_meta, None, None
             except Exception:
                 pass
             try:
                 doc = Document(io.BytesIO(file_bytes))
                 paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-                return "\n\n".join(paragraphs), False, doc_meta
+                return "\n\n".join(paragraphs), False, doc_meta, None, None
             except Exception as e:
-                return f"[Extracted document filename: {grid_out.filename}]", False, doc_meta
+                return f"[Extracted document filename: {grid_out.filename}]", False, doc_meta, None, None
 
         # 4. PowerPoint PPTX - extract slide texts
         if filename.endswith(".pptx"):
@@ -95,24 +106,42 @@ def extract_document_context(file_id):
                             slide_lines.append(shape.text.strip())
                     if slide_lines:
                         slides_text.append(f"--- Slide {idx} ---\n" + "\n".join(slide_lines))
-                return "\n\n".join(slides_text), False, doc_meta
+                return "\n\n".join(slides_text), False, doc_meta, None, None
             except Exception:
-                return f"[Presentation: {grid_out.filename}]", False, doc_meta
+                return f"[Presentation: {grid_out.filename}]", False, doc_meta, None, None
 
         # 5. Plain text & code
         if filename.endswith((".txt", ".md", ".csv", ".json", ".py", ".js", ".html", ".log")):
-            return file_bytes.decode("utf-8", errors="ignore"), False, doc_meta
+            return file_bytes.decode("utf-8", errors="ignore"), False, doc_meta, None, None
             
-        return f"[Document: {grid_out.filename}]", False, doc_meta
+        return f"[Document: {grid_out.filename}]", False, doc_meta, None, None
         
     except Exception as e:
         print(f"[Gemini Service] Error extracting document context: {e}")
-        return None, False, None
+        return None, False, None, None, None
+
+def _extract_interaction_text(interaction):
+    """
+    Safely extracts response string from an Interaction object across different schemas.
+    """
+    if hasattr(interaction, "output_text") and interaction.output_text:
+        return interaction.output_text
+    if hasattr(interaction, "outputs") and interaction.outputs:
+        for out in reversed(interaction.outputs):
+            if hasattr(out, "text") and out.text:
+                return out.text
+    if hasattr(interaction, "steps") and interaction.steps:
+        for step in reversed(interaction.steps):
+            if hasattr(step, "content") and step.content:
+                for c in step.content:
+                    if hasattr(c, "text") and c.text:
+                        return c.text
+    return str(interaction)
 
 def ask_gemini(prompt="", file_id=None, action=None):
     """
     Sends a query to Gemini model with optional document context.
-    Actions supported: 'summarize', 'quiz', 'explain', or freeform 'chat'.
+    Uses Google's recommended Interactions API and gemini-3.6-flash / gemini-3.7-flash.
     """
     client = get_client()
     if not client:
@@ -129,7 +158,7 @@ def ask_gemini(prompt="", file_id=None, action=None):
         }
 
     # Extract context if file_id is provided
-    doc_payload, is_binary_part, doc_meta = extract_document_context(file_id)
+    doc_payload, is_binary_part, doc_meta, raw_bytes, mime_type = extract_document_context(file_id)
     
     # Define action prompts
     if action == "summarize":
@@ -162,51 +191,99 @@ def ask_gemini(prompt="", file_id=None, action=None):
         "If answering questions about a provided document, prioritize the document's facts and content."
     )
 
-    contents = []
-    
-    # Add document context
-    if doc_payload is not None:
-        if is_binary_part:
-            contents.append(doc_payload)
-            contents.append(f"Document Title: {doc_meta.get('title', 'Unknown')}\nSubject: {doc_meta.get('subject')}\n\nTask: {user_instruction}")
-        else:
-            # Text context (truncate if extremely long to maintain fast latency)
-            truncated_text = doc_payload[:60000] if len(doc_payload) > 60000 else doc_payload
-            context_prompt = (
-                f"### Academic Document Context:\n"
-                f"- **Title**: {doc_meta.get('title')}\n"
-                f"- **Subject**: {doc_meta.get('subject')} / {doc_meta.get('folder')}\n\n"
-                f"```text\n{truncated_text}\n```\n\n"
-                f"### User Question / Request:\n{user_instruction}"
-            )
-            contents.append(context_prompt)
-    else:
-        contents.append(user_instruction)
+    models_to_try = [get_effective_model()]
+    for fallback_model in ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"]:
+        if fallback_model not in models_to_try:
+            models_to_try.append(fallback_model)
 
-    model_name = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
-    
-    try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.7,
+    last_error = None
+
+    for target_model in models_to_try:
+        # Method 1: Try Interactions API (Google's recommended way for Gemini 3.x)
+        if hasattr(client, "interactions"):
+            try:
+                if doc_payload is not None:
+                    if is_binary_part and raw_bytes:
+                        b64_data = base64.b64encode(raw_bytes).decode("utf-8")
+                        input_payload = [
+                            {"type": "text", "text": f"Document Title: {doc_meta.get('title')}\nSubject: {doc_meta.get('subject')}\n\nTask: {user_instruction}"},
+                            {"type": "file" if "pdf" in (mime_type or "") else "image", "data": b64_data, "mime_type": mime_type}
+                        ]
+                    else:
+                        truncated_text = doc_payload[:60000] if len(doc_payload) > 60000 else doc_payload
+                        input_payload = (
+                            f"### Academic Document Context:\n"
+                            f"- **Title**: {doc_meta.get('title')}\n"
+                            f"- **Subject**: {doc_meta.get('subject')} / {doc_meta.get('folder')}\n\n"
+                            f"```text\n{truncated_text}\n```\n\n"
+                            f"### User Question / Request:\n{user_instruction}"
+                        )
+                else:
+                    input_payload = user_instruction
+
+                interaction = client.interactions.create(
+                    model=target_model,
+                    input=input_payload,
+                    system_instruction=system_prompt,
+                )
+                
+                resp_text = _extract_interaction_text(interaction)
+                if resp_text:
+                    return {
+                        "success": True,
+                        "configured": True,
+                        "response": resp_text,
+                        "model": target_model,
+                        "doc_title": doc_meta.get("title") if doc_meta else None
+                    }
+            except Exception as e_interact:
+                print(f"[Gemini Interactions API with {target_model}]: {e_interact}")
+                last_error = e_interact
+
+        # Method 2: Fallback to generate_content API with GenerateContentConfig
+        try:
+            contents = []
+            if doc_payload is not None:
+                if is_binary_part:
+                    contents.append(doc_payload)
+                    contents.append(f"Document Title: {doc_meta.get('title', 'Unknown')}\nSubject: {doc_meta.get('subject')}\n\nTask: {user_instruction}")
+                else:
+                    truncated_text = doc_payload[:60000] if len(doc_payload) > 60000 else doc_payload
+                    context_prompt = (
+                        f"### Academic Document Context:\n"
+                        f"- **Title**: {doc_meta.get('title')}\n"
+                        f"- **Subject**: {doc_meta.get('subject')} / {doc_meta.get('folder')}\n\n"
+                        f"```text\n{truncated_text}\n```\n\n"
+                        f"### User Question / Request:\n{user_instruction}"
+                    )
+                    contents.append(context_prompt)
+            else:
+                contents.append(user_instruction)
+
+            response = client.models.generate_content(
+                model=target_model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                )
             )
-        )
-        
-        return {
-            "success": True,
-            "configured": True,
-            "response": response.text,
-            "model": model_name,
-            "doc_title": doc_meta.get("title") if doc_meta else None
-        }
-    except Exception as e:
-        print(f"[Gemini Service Error]: {e}")
-        return {
-            "success": False,
-            "configured": True,
-            "error": str(e),
-            "response": f"### ⚠️ AI Processing Error\n\nCould not generate response from Gemini: `{str(e)}`"
-        }
+
+            if response and response.text:
+                return {
+                    "success": True,
+                    "configured": True,
+                    "response": response.text,
+                    "model": target_model,
+                    "doc_title": doc_meta.get("title") if doc_meta else None
+                }
+        except Exception as e_gen:
+            print(f"[Gemini generate_content with {target_model}]: {e_gen}")
+            last_error = e_gen
+
+    return {
+        "success": False,
+        "configured": True,
+        "error": str(last_error),
+        "response": f"### ⚠️ AI Processing Error\n\nCould not generate response from Gemini: `{str(last_error)}`"
+    }
+

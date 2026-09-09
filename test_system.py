@@ -208,7 +208,7 @@ def run_tests():
     ai_status_json = r_ai_status.json()
     assert ai_status_json.get('success') is True
     assert 'configured' in ai_status_json
-    assert 'gemini-2.5-flash' in ai_status_json.get('model', '')
+    assert 'gemini-3.6-flash' in ai_status_json.get('model', '')
     print(f"  [OK] /api/ai/status/ returned model={ai_status_json.get('model')}, configured={ai_status_json.get('configured')}")
 
     # Test invalid empty chat request

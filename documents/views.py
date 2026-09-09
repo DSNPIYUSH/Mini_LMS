@@ -708,7 +708,7 @@ def api_ai_status_view(request):
     return JsonResponse({
         "success": True,
         "configured": configured,
-        "model": getattr(gemini_service, "DEFAULT_MODEL", "gemini-2.5-flash")
+        "model": gemini_service.get_effective_model()
     })
 
 @csrf_exempt
