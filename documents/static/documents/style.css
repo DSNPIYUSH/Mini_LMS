@@ -148,6 +148,26 @@ header {
     gap: 6px;
 }
 
+.admin-badge.user-badge {
+    background-color: rgba(14, 165, 233, 0.12);
+    color: #0284c7;
+    border-color: rgba(14, 165, 233, 0.3);
+}
+
+[data-theme="dark"] .admin-badge.user-badge {
+    color: #38bdf8;
+}
+
+.nav-username {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .theme-toggle-btn {
     background-color: var(--bg-card);
     border: 1px solid var(--border-color);
@@ -673,6 +693,103 @@ main {
 .modal-body {
     padding: 24px;
 }
+
+.user-scope-note {
+    background-color: rgba(79, 70, 229, 0.07);
+    border: 1px dashed rgba(79, 70, 229, 0.35);
+    color: var(--text-muted);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.users-table-wrap {
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.users-table-loading {
+    padding: 18px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.users-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    background-color: var(--bg-card-hover);
+    position: sticky;
+    top: 0;
+}
+
+.users-table td {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-main);
+    vertical-align: middle;
+}
+
+.users-table td.actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.role-pill {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.role-pill.role-admin {
+    background-color: rgba(79, 70, 229, 0.12);
+    color: var(--primary);
+}
+
+.role-pill.role-user {
+    background-color: rgba(14, 165, 233, 0.12);
+    color: #0284c7;
+}
+
+[data-theme="dark"] .role-pill.role-user {
+    color: #38bdf8;
+}
+
+.status-pill {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.status-pill.active {
+    background-color: rgba(34, 197, 94, 0.14);
+    color: #16a34a;
+}
+
+.status-pill.inactive {
+    background-color: rgba(239, 68, 68, 0.14);
+    color: #ef4444;
+}
+
+[data-theme="dark"] .status-pill.active { color: #4ade80; }
+[data-theme="dark"] .status-pill.inactive { color: #f87171; }
 
 .form-group {
     margin-bottom: 16px;

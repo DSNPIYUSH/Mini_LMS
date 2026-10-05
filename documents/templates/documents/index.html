@@ -42,14 +42,16 @@
                     <button class="btn btn-primary btn-sm" onclick="openUploadModal()">
                         + Upload Document
                     </button>
-                    <a href="{% url 'documents:logout' %}" class="btn btn-secondary btn-sm">
-                        Logout
-                    </a>
+                    <button class="btn btn-secondary btn-sm" onclick="openUserManagerModal()" title="Create and manage user accounts">
+                        👥 Users
+                    </button>
                 {% else %}
-                    <a href="{% url 'documents:login' %}" class="btn btn-secondary btn-sm" title="Admin access to upload documents & create folders">
-                        🔐 Admin Login
-                    </a>
+                    <span class="admin-badge user-badge">👤 User</span>
                 {% endif %}
+                <span class="nav-username" title="Signed in as {{ username }}">{{ username }}</span>
+                <a href="{% url 'documents:logout' %}" class="btn btn-secondary btn-sm">
+                    Logout
+                </a>
             </div>
         </div>
     </header>
@@ -271,6 +273,49 @@
                     </div>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Admin: Manage Users Modal (single admin profile, regular users get no admin control) -->
+    <div id="userManagerModal" class="modal-overlay">
+        <div class="modal-box" style="max-width: 620px;">
+            <div class="modal-header">
+                <h2>Manage User Accounts</h2>
+                <button class="close-btn" onclick="closeUserManagerModal()">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="user-scope-note">
+                    🔐 You are the only administrator. Accounts you create here can sign in at
+                    <strong>/user-login/</strong> to view and study materials &mdash; they get no admin controls.
+                </div>
+
+                <!-- Create user -->
+                <form id="createUserForm" onsubmit="handleCreateUserSubmit(event)">
+                    <h3 style="font-size: 0.95rem; font-weight: 700; margin: 20px 0 12px;">➕ New User</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="form-group">
+                            <label class="form-label" for="newUsername">Username</label>
+                            <input type="text" id="newUsername" class="form-input" placeholder="e.g. arjun" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="newUserEmail">Email (optional)</label>
+                            <input type="email" id="newUserEmail" class="form-input" placeholder="e.g. arjun@example.com">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="newUserPassword">Password</label>
+                        <input type="text" id="newUserPassword" class="form-input" placeholder="At least 8 characters" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Create User</button>
+                </form>
+
+                <!-- User list -->
+                <h3 style="font-size: 0.95rem; font-weight: 700; margin: 24px 0 10px;">👥 Accounts</h3>
+                <div id="usersTableContainer" class="users-table-wrap">
+                    <div class="users-table-loading">Loading accounts…</div>
+                </div>
+            </div>
         </div>
     </div>
     {% endif %}

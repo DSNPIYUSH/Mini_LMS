@@ -98,13 +98,14 @@ class MainActivity : AppCompatActivity() {
     private fun updateAdminState() {
         val isAdmin = SubjectBankApp.instance.prefs.isAdmin
         val username = SubjectBankApp.instance.prefs.username
+        val signedIn = SubjectBankApp.instance.prefs.isAuthenticated
 
         binding.fabNewSubject.visibility = if (isAdmin) View.VISIBLE else View.GONE
 
-        if (isAdmin) {
-            binding.toolbar.subtitle = "Admin Mode ($username) • MongoDB"
-        } else {
-            binding.toolbar.subtitle = "Viewer Mode • Direct DB Vault"
+        binding.toolbar.subtitle = when {
+            isAdmin -> "Admin Mode ($username) • MongoDB"
+            signedIn -> "User Mode ($username) • Read Only"
+            else -> "Signed Out • Direct DB Vault"
         }
 
         subjectAdapter.updateData(allSubjects, isAdmin)
@@ -118,7 +119,9 @@ class MainActivity : AppCompatActivity() {
                 val response = apiService.getAuthStatus()
                 if (response.success) {
                     val prefs = SubjectBankApp.instance.prefs
+                    prefs.isAuthenticated = response.isAuthenticated
                     prefs.isAdmin = response.isAdmin
+                    prefs.role = response.role ?: if (response.isAdmin) "admin" else "user"
                     prefs.username = response.username ?: ""
                     updateAdminState()
                 }
@@ -144,9 +147,12 @@ class MainActivity : AppCompatActivity() {
                     val query = binding.etSearch.text?.toString()?.trim() ?: ""
                     filterSubjects(query)
 
-                    // Also sync admin status returned by backend
-                    if (response.isAdmin != SubjectBankApp.instance.prefs.isAdmin) {
-                        SubjectBankApp.instance.prefs.isAdmin = response.isAdmin
+                    // Also sync auth role returned by backend
+                    val prefs = SubjectBankApp.instance.prefs
+                    prefs.isAuthenticated = true
+                    if (response.isAdmin != prefs.isAdmin) {
+                        prefs.isAdmin = response.isAdmin
+                        prefs.role = if (response.isAdmin) "admin" else "user"
                         updateAdminState()
                     }
                 } else {

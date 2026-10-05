@@ -4,7 +4,7 @@ https://mini-lms-sdx6.onrender.com/
 
 A lightweight document management platform where files (PDFs, PPTs, Word documents, images) are stored **directly inside MongoDB using GridFS**, structured hierarchically by **Subject → Folders → Documents**.
 
-The platform features strict role-based access control (RBAC): **Administrators** manage courses, structure folders, and upload materials, while **Viewers** can browse and read documents directly inside their browser or mobile app without downloading files locally.
+The platform features strict role-based access control (RBAC) with **password-only authentication (no two-factor/OTP step)**. There is exactly **one administrator profile**, which manages courses, structure folders, uploads materials, and creates user accounts. Every other account is a **regular user** that can sign in on its own login page and browse, preview, and download materials with **zero administrative control**. **Login is required to view anything** — anonymous visitors are redirected to the login page.
 
 Most of the android studio is done by using vibe coding
 ---
@@ -15,8 +15,10 @@ Most of the android studio is done by using vibe coding
    - Organized intuitively for students and faculty: **Subject** (e.g., *Cloud Computing*) → **Folders** (e.g., *Syllabus*, *Unit 1 - Architecture*, *Lab Manuals*) → **Documents**.
    - Built-in breadcrumb navigation (`All Subjects > Cloud Computing > Unit 1`).
 2. **Role-Based Access Control (RBAC)**:
-   - **Viewer (Public)**: Browse subjects, navigate folders, search materials, and view documents live. Administrative actions (upload, edit, delete) are hidden, and unauthorized API requests return `403 Forbidden`.
-   - **Administrator**: Dedicated login portal (`/login/`) to create subjects, manage folders, upload documents, and delete obsolete materials.
+   - **Administrator (single profile)**: Dedicated login portal at `/login/` (staff accounts only). Creates subjects, manages folders, uploads documents, deletes obsolete materials, and **creates/deletes regular user accounts** from the **👥 Users** button in the header.
+   - **Regular User**: Dedicated login portal at `/user-login/` (non-staff accounts only). Browse subjects, navigate folders, search materials, and view documents live in the browser or mobile app. No admin controls are rendered and every admin endpoint returns `403 Forbidden`.
+   - **Anonymous**: Redirected to `/user-login/` from the homepage and blocked from all content and API endpoints (`403`). Only `/health/` stays public.
+   - **Password-only**: Two-factor authentication has been removed — one username + password POST signs you straight in.
 3. **Universal In-Browser Live Previews (Zero Downloads Required)**:
    - **Word Documents (`.docx`)**: Formatted as clean A4 reading pages with support for tables, images, and typography.
    - **PowerPoint Presentations (`.pptx`)**: Interactive presentation canvas with slide thumbnails, next/previous buttons, and keyboard controls (`←`, `→`).
@@ -49,6 +51,8 @@ ADMIN_USERNAME=your_admin_username
 ADMIN_PASSWORD=your_secure_password
 ```
 
+> SMS/Twilio/Fast2SMS variables (`ADMIN_PHONE_NUMBER`, `SMS_PROVIDER`, `TWILIO_*`, `FAST2SMS_API_KEY`) are no longer used — two-factor authentication has been removed.
+
 Apply database migrations and initialize credentials:
 
 ```bash
@@ -58,10 +62,24 @@ python manage.py migrate
 python set_admin.py
 ```
 
+`set_admin.py` provisions **exactly one** administrator from `ADMIN_USERNAME` / `ADMIN_PASSWORD` and automatically **demotes any other staff account** to a regular user, so the admin profile stays unique.
+
 *Or create a superuser interactively:*
 ```bash
 python manage.py createsuperuser
 ```
+
+### Creating User Accounts
+
+Regular user accounts are **created from the web UI** by the administrator:
+
+1. Sign in at `/login/`.
+2. Click the **👥 Users** button in the header.
+3. Enter a username and password, then click **Create User**.
+
+Each account can also be disabled/enabled, have its password reset, or be deleted. New accounts are always regular users — they can never be granted admin rights, and the administrator profile itself cannot be deleted or deactivated.
+
+Regular users sign in at **`/user-login/`**.
 
 ---
 
@@ -102,7 +120,7 @@ The project includes a companion native Android client located in the [`android_
 
 ## 🧪 Automated Testing
 
-To test authentication restrictions, API responses, GridFS uploads, live preview endpoints, and document deletion:
+To test anonymous restrictions, admin vs. user permissions, single-admin protection, user management, API responses, GridFS uploads, live preview endpoints, and document deletion:
 
 ```bash
 python test_system.py

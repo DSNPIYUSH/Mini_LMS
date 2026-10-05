@@ -73,6 +73,7 @@ async function loadSubjectsData() {
     try {
         const res = await fetch('/api/subjects/');
         const data = await res.json();
+        if (handleAuthFailure(res, data)) return;
         if (data.success) {
             subjectsList = data.subjects || [];
             isAdmin = data.is_admin || false;
@@ -361,6 +362,7 @@ async function fetchSubjectDocuments(allowCache = true) {
     try {
         const res = await fetch(`/api/documents/?${params.toString()}`);
         const data = await res.json();
+        if (handleAuthFailure(res, data)) return;
         if (data.success) {
             clientDocCache.set(cacheKey, { data: data.documents, timestamp: Date.now() });
             renderDocumentsGrid(data.documents);
@@ -628,6 +630,171 @@ function openUploadModalFor(subjName, folderName) {
 function closeUploadModal() {
     document.getElementById('uploadModal').classList.remove('active');
     clearSelectedFiles();
+}
+
+// Redirect to the login page when a request comes back unauthenticated
+function handleAuthFailure(res, data) {
+    if (res.status === 401 || (res.status === 403 && data && data.error === 'Unauthorized. Please log in to continue.')) {
+        showToast('Session expired. Redirecting to login…', 'error');
+        setTimeout(() => { window.location.href = '/user-login/'; }, 1200);
+        return true;
+    }
+    return false;
+}
+
+// ================= ADMIN: USER MANAGEMENT =================
+
+function openUserManagerModal() {
+    const modal = document.getElementById('userManagerModal');
+    if (!modal) return;
+    modal.classList.add('active');
+    loadUsers();
+}
+
+function closeUserManagerModal() {
+    const modal = document.getElementById('userManagerModal');
+    if (modal) modal.classList.remove('active');
+}
+
+async function loadUsers() {
+    const container = document.getElementById('usersTableContainer');
+    if (!container) return;
+    try {
+        const res = await fetch('/api/users/');
+        const data = await res.json();
+        if (!data.success) {
+            container.innerHTML = `<div class="users-table-loading">${escapeHtml(data.error || 'Could not load accounts.')}</div>`;
+            return;
+        }
+        container.innerHTML = renderUsersTable(data.users || []);
+    } catch (err) {
+        container.innerHTML = '<div class="users-table-loading">Could not load accounts. Please retry.</div>';
+    }
+}
+
+function renderUsersTable(users) {
+    if (!users.length) {
+        return '<div class="users-table-loading">No accounts found.</div>';
+    }
+
+    const rows = users.map(u => {
+        const rolePill = u.is_admin
+            ? '<span class="role-pill role-admin">Admin</span>'
+            : '<span class="role-pill role-user">User</span>';
+        const statusPill = u.is_admin
+            ? '<span class="status-pill active">Active</span>'
+            : (u.is_active
+                ? '<span class="status-pill active">Active</span>'
+                : '<span class="status-pill inactive">Disabled</span>');
+        const email = u.email ? escapeHtml(u.email) : '<span style="color:var(--text-muted)">—</span>';
+        const actions = u.is_admin
+            ? '<span style="color:var(--text-muted);font-size:0.75rem;">Protected</span>'
+            : `
+                <button class="btn btn-sm btn-secondary" onclick="promptResetUserPassword(${u.id}, '${escapeJs(u.username)}')">Password</button>
+                <button class="btn btn-sm btn-secondary" onclick="toggleUserActive(${u.id})">${u.is_active ? 'Disable' : 'Enable'}</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUserAccount(${u.id}, '${escapeJs(u.username)}')">Delete</button>
+            `;
+
+        return `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(u.username)}</strong>${u.is_self ? ' <span style="color:var(--text-muted);font-size:0.75rem;">(you)</span>' : ''}
+                    <div style="color:var(--text-muted);font-size:0.75rem;">${email}</div>
+                </td>
+                <td>${rolePill}</td>
+                <td>${statusPill}</td>
+                <td class="actions">${actions}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <table class="users-table">
+            <thead>
+                <tr><th>Account</th><th>Role</th><th>Status</th><th style="text-align:right;">Actions</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+async function handleCreateUserSubmit(event) {
+    event.preventDefault();
+
+    const usernameInput = document.getElementById('newUsername');
+    const emailInput = document.getElementById('newUserEmail');
+    const passwordInput = document.getElementById('newUserPassword');
+
+    const username = usernameInput.value.trim();
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+
+    if (!username || !password) return;
+
+    try {
+        const res = await fetch('/api/users/create/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ username, email, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message);
+            usernameInput.value = '';
+            emailInput.value = '';
+            passwordInput.value = '';
+            loadUsers();
+        } else {
+            showToast(data.error || 'Could not create user', 'error');
+        }
+    } catch (err) {
+        showToast('Error creating user', 'error');
+    }
+}
+
+async function deleteUserAccount(userId, username) {
+    if (!window.confirm(`Delete the user account "${username}"? This cannot be undone.`)) return;
+    try {
+        const res = await fetch(`/api/users/${userId}/delete/`, { method: 'POST' });
+        const data = await res.json();
+        showToast(data.success ? data.message : (data.error || 'Could not delete user'), data.success ? 'success' : 'error');
+        if (data.success) loadUsers();
+    } catch (err) {
+        showToast('Error deleting user', 'error');
+    }
+}
+
+async function toggleUserActive(userId) {
+    try {
+        const res = await fetch(`/api/users/${userId}/toggle-active/`, { method: 'POST' });
+        const data = await res.json();
+        showToast(data.success ? data.message : (data.error || 'Could not update user'), data.success ? 'success' : 'error');
+        if (data.success) loadUsers();
+    } catch (err) {
+        showToast('Error updating user', 'error');
+    }
+}
+
+function promptResetUserPassword(userId, username) {
+    const next = window.prompt(`Enter the new password for "${username}":`);
+    if (next === null) return;
+    if (!next) {
+        showToast('Password cannot be empty', 'error');
+        return;
+    }
+    (async () => {
+        try {
+            const res = await fetch(`/api/users/${userId}/password/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: next })
+            });
+            const data = await res.json();
+            showToast(data.success ? data.message : (data.error || 'Could not update password'), data.success ? 'success' : 'error');
+        } catch (err) {
+            showToast('Error updating password', 'error');
+        }
+    })();
 }
 
 function setupDropzone() {
@@ -1157,6 +1324,7 @@ async function checkAiStatus() {
     try {
         const res = await fetch('/api/ai/status/');
         const data = await res.json();
+        if (handleAuthFailure(res, data)) return;
         const sub = document.getElementById('aiStatusSubtitle');
         if (sub) {
             if (data.configured) {

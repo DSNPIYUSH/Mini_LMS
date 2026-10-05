@@ -6,18 +6,23 @@ app_name = "documents"
 urlpatterns = [
     path("", views.index_view, name="index"),
     path("health/", views.health_check_view, name="health_check"),
-    path("login/", views.login_view, name="login"),
-    path("verify-otp/", views.verify_otp_view, name="verify_otp"),
-    path("resend-otp/", views.resend_otp_view, name="resend_otp"),
+    path("login/", views.login_view, name="admin_login"),
+    path("user-login/", views.user_login_view, name="user_login"),
     path("logout/", views.logout_view, name="logout"),
     path("manifest.json", views.pwa_manifest_view, name="pwa_manifest"),
     
-    # Mobile Auth & 2FA APIs
+    # Mobile / REST Auth APIs (no two-factor step)
     path("api/auth/login/", views.api_auth_login_view, name="api_auth_login"),
-    path("api/auth/verify-otp/", views.api_auth_verify_otp_view, name="api_auth_verify_otp"),
-    path("api/auth/resend-otp/", views.api_auth_resend_otp_view, name="api_auth_resend_otp"),
     path("api/auth/status/", views.api_auth_status_view, name="api_auth_status"),
     path("api/auth/logout/", views.api_auth_logout_view, name="api_auth_logout"),
+    
+    # Admin-only user management (single admin profile, regular users have no admin control)
+    path("api/users/", views.api_users_view, name="api_users"),
+    path("api/users/create/", views.api_create_user_view, name="api_create_user"),
+    path("api/users/<int:user_id>/delete/", views.api_delete_user_view, name="api_delete_user"),
+    path("api/users/<int:user_id>/password/", views.api_reset_user_password_view, name="api_reset_user_password"),
+    path("api/users/<int:user_id>/toggle-active/", views.api_toggle_user_active_view, name="api_toggle_user_active"),
+    
     # Subject & Folder APIs
     path("api/subjects/", views.api_subjects_view, name="api_subjects"),
     path("api/subjects/create/", views.api_create_subject_view, name="api_create_subject"),

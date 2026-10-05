@@ -51,6 +51,7 @@ data class AuthResponse(
     @SerializedName("success") val success: Boolean = false,
     @SerializedName("is_authenticated") val isAuthenticated: Boolean = false,
     @SerializedName("is_admin") val isAdmin: Boolean = false,
+    @SerializedName("role") val role: String? = null,
     @SerializedName("username") val username: String? = null,
     @SerializedName("message") val message: String? = null,
     @SerializedName("error") val error: String? = null

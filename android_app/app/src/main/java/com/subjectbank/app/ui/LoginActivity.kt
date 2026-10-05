@@ -60,16 +60,19 @@ class LoginActivity : AppCompatActivity() {
                 binding.loginProgress.visibility = View.GONE
                 binding.btnLogin.isEnabled = true
 
-                if (response.success && response.isAdmin) {
+                if (response.success) {
                     val prefs = SubjectBankApp.instance.prefs
-                    prefs.isAdmin = true
+                    prefs.isAdmin = response.isAdmin
+                    prefs.isAuthenticated = true
+                    prefs.role = response.role ?: if (response.isAdmin) "admin" else "user"
                     prefs.username = response.username ?: username
 
-                    Toast.makeText(this@LoginActivity, "Logged in as Admin!", Toast.LENGTH_SHORT).show()
+                    val label = if (response.isAdmin) "Admin" else "User"
+                    Toast.makeText(this@LoginActivity, "Logged in as $label!", Toast.LENGTH_SHORT).show()
                     setResult(RESULT_OK)
                     finish()
                 } else {
-                    binding.tvLoginError.text = response.error ?: "Invalid administrator credentials"
+                    binding.tvLoginError.text = response.error ?: "Invalid credentials"
                     binding.tvLoginError.visibility = View.VISIBLE
                 }
             } catch (e: Exception) {

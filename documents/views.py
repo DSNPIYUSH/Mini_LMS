@@ -1,7 +1,5 @@
 import io
-import os
 import json
-import time
 import base64
 import mammoth
 from pptx import Presentation
@@ -10,281 +8,331 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse, Http404
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.utils.http import urlencode, url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt
 from . import mongo
-from . import otp_service
 from . import gemini_service
 
-# ================= AUTHENTICATION & 2-STEP VERIFICATION VIEWS =================
+# ================= ACCESS CONTROL HELPERS =================
+
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+
+def user_role(user):
+    """Return 'admin' for the single staff profile, 'user' for everyone else."""
+    return ROLE_ADMIN if (user and user.is_authenticated and user.is_staff) else ROLE_USER
+
+
+def safe_next(request, default="/"):
+    """Only follow same-site relative redirect targets."""
+    target = request.POST.get("next") or request.GET.get("next") or ""
+    if target and url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return target
+    return default
+
+
+def require_login_page(view_func):
+    """Redirect anonymous HTML visitors to the login page."""
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            query = urlencode({"next": request.get_full_path()})
+            return redirect(f"{reverse('documents:user_login')}?{query}")
+        return view_func(request, *args, **kwargs)
+    wrapper.__name__ = view_func.__name__
+    return wrapper
+
+
+def require_login_api(view_func):
+    """Return 403 for anonymous JSON/REST callers."""
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse({
+                "success": False,
+                "error": "Unauthorized. Please log in to continue."
+            }, status=403)
+        return view_func(request, *args, **kwargs)
+    wrapper.__name__ = view_func.__name__
+    return wrapper
+
+
+def require_admin_api(view_func):
+    """Only the single admin profile may perform this action."""
+    def wrapper(request, *args, **kwargs):
+        if not (request.user.is_authenticated and request.user.is_staff):
+            return JsonResponse({
+                "success": False,
+                "error": "Access denied. Administrator privileges are required."
+            }, status=403)
+        return view_func(request, *args, **kwargs)
+    wrapper.__name__ = view_func.__name__
+    return wrapper
+
+
+def _request_data(request):
+    """Read fields from either a JSON body or a standard form POST."""
+    if request.content_type and "application/json" in request.content_type and request.body:
+        try:
+            return json.loads(request.body.decode("utf-8") or "{}")
+        except Exception:
+            return {}
+    return request.POST
+
+
+# ================= AUTHENTICATION VIEWS (NO TWO-FACTOR) =================
 
 def login_view(request):
+    """Admin-only login for the single administrator profile."""
     if request.user.is_authenticated and request.user.is_staff:
         return redirect("/")
-        
+
     error = None
     if request.method == "POST":
         username = request.POST.get("username", "").strip()
-        password = request.POST.get("password", "").strip()
-        
-        user = authenticate(request, username=username, password=password)
-        if user is not None:
-            if user.is_staff:
-                # Initiate 2-Step Verification
-                phone_number = os.getenv("ADMIN_PHONE_NUMBER", "+919876543210").strip()
-                otp_code = otp_service.generate_otp()
-                
-                request.session['pre_2fa_user_id'] = user.id
-                request.session['otp_code'] = otp_code
-                request.session['otp_expires_at'] = time.time() + 300  # 5 minutes validity
-                request.session['otp_attempts'] = 0
-                request.session['otp_phone'] = phone_number
-                request.session['otp_sent_at'] = time.time()
-                
-                # Send SMS via gateway / console
-                otp_service.send_otp_sms(phone_number, otp_code)
-                
-                return redirect(reverse("documents:verify_otp"))
-            else:
-                error = "Access denied. Only administrators can log into the management console."
-        else:
-            error = "Invalid username or password. Please try again."
-            
-    return render(request, "documents/login.html", {"error": error})
+        password = request.POST.get("password", "")
 
-def verify_otp_view(request):
-    if request.user.is_authenticated and request.user.is_staff:
-        return redirect("/")
-        
-    user_id = request.session.get('pre_2fa_user_id')
-    if not user_id:
-        return redirect(reverse("documents:login"))
-        
-    phone_number = request.session.get('otp_phone', '+91 ••••• ••123')
-    masked_phone = otp_service.mask_phone_number(phone_number)
-    error = None
-    
-    if request.method == "POST":
-        submitted_otp = request.POST.get("otp", "").strip()
-        actual_otp = request.session.get('otp_code')
-        expires_at = request.session.get('otp_expires_at', 0)
-        attempts = request.session.get('otp_attempts', 0)
-        
-        # Check attempts limit
-        if attempts >= 3:
-            # Clear 2FA session on security lockout
-            for key in ['pre_2fa_user_id', 'otp_code', 'otp_expires_at', 'otp_attempts', 'otp_phone', 'otp_sent_at']:
-                request.session.pop(key, None)
-            return render(request, "documents/login.html", {
-                "error": "Account locked after 3 failed OTP attempts. Please log in again."
-            })
-            
-        # Check expiration
-        if time.time() > expires_at:
-            error = "Verification code has expired. Please click 'Resend OTP' below."
-        elif submitted_otp == actual_otp:
-            # Successful 2FA verification!
-            User = get_user_model()
-            try:
-                user = User.objects.get(id=user_id)
-                auth_login(request, user)
-                
-                # Clean up session
-                for key in ['pre_2fa_user_id', 'otp_code', 'otp_expires_at', 'otp_attempts', 'otp_phone', 'otp_sent_at']:
-                    request.session.pop(key, None)
-                    
-                return redirect("/")
-            except User.DoesNotExist:
-                return redirect(reverse("documents:login"))
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            error = "Invalid username or password. Please try again."
+        elif not user.is_staff:
+            error = "This account is not an administrator. Please use the user login page."
         else:
-            attempts += 1
-            request.session['otp_attempts'] = attempts
-            remaining = 3 - attempts
-            if remaining <= 0:
-                for key in ['pre_2fa_user_id', 'otp_code', 'otp_expires_at', 'otp_attempts', 'otp_phone', 'otp_sent_at']:
-                    request.session.pop(key, None)
-                return render(request, "documents/login.html", {
-                    "error": "Maximum OTP attempts exceeded. Please log in again."
-                })
-            else:
-                error = f"Invalid verification code. {remaining} attempt(s) remaining."
-                
-    return render(request, "documents/verify_otp.html", {
-        "masked_phone": masked_phone,
-        "error": error
+            auth_login(request, user)
+            return redirect(safe_next(request))
+
+    return render(request, "documents/login.html", {
+        "error": error,
+        "next": safe_next(request, default="")
     })
 
-def resend_otp_view(request):
-    user_id = request.session.get('pre_2fa_user_id')
-    if not user_id:
-        return redirect(reverse("documents:login"))
-        
-    last_sent = request.session.get('otp_sent_at', 0)
-    # 60s cooldown
-    if time.time() - last_sent >= 60:
-        phone_number = request.session.get('otp_phone', os.getenv("ADMIN_PHONE_NUMBER", "+919876543210").strip())
-        new_otp = otp_service.generate_otp()
-        request.session['otp_code'] = new_otp
-        request.session['otp_expires_at'] = time.time() + 300
-        request.session['otp_attempts'] = 0
-        request.session['otp_sent_at'] = time.time()
-        
-        otp_service.send_otp_sms(phone_number, new_otp)
-        
-    return redirect(reverse("documents:verify_otp"))
+
+def user_login_view(request):
+    """Login page for regular users. No administrative controls are granted."""
+    if request.user.is_authenticated and not request.user.is_staff:
+        return redirect("/")
+
+    error = None
+    if request.method == "POST":
+        username = request.POST.get("username", "").strip()
+        password = request.POST.get("password", "")
+
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            error = "Invalid username or password. Please try again."
+        elif user.is_staff:
+            error = "Administrators must sign in from the admin login page."
+        else:
+            auth_login(request, user)
+            return redirect(safe_next(request))
+
+    return render(request, "documents/user_login.html", {
+        "error": error,
+        "next": safe_next(request, default="")
+    })
+
 
 def logout_view(request):
     auth_logout(request)
-    return redirect("/")
+    return redirect(reverse("documents:user_login"))
+
 
 @csrf_exempt
 def api_auth_login_view(request):
+    """
+    Mobile/REST login. Optional 'role' field decides which account type is expected:
+      role="admin" -> only the single staff profile may log in
+      role="user"  -> only non-staff accounts may log in
+    When 'role' is omitted either account type is accepted and the real role returned.
+    """
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "POST method required"}, status=405)
-    
-    username = ""
-    password = ""
-    
-    # Support both JSON body and standard Form POST
-    if request.content_type == "application/json" and request.body:
-        try:
-            body_data = json.loads(request.body)
-            username = body_data.get("username", "").strip()
-            password = body_data.get("password", "").strip()
-        except Exception:
-            pass
-    
-    if not username:
-        username = request.POST.get("username", "").strip()
-        password = request.POST.get("password", "").strip()
-        
+
+    data = _request_data(request)
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    expected_role = (data.get("role") or "").strip().lower()
+
+    if expected_role not in ("", ROLE_ADMIN, ROLE_USER):
+        return JsonResponse({"success": False, "error": "Role must be either 'admin' or 'user'."}, status=400)
+
     if not username or not password:
         return JsonResponse({"success": False, "error": "Username and password are required"}, status=400)
-        
+
     user = authenticate(request, username=username, password=password)
-    if user is not None:
-        if user.is_staff:
-            # 2FA initialization for mobile/REST
-            phone_number = os.getenv("ADMIN_PHONE_NUMBER", "+919876543210").strip()
-            otp_code = otp_service.generate_otp()
-            
-            request.session['pre_2fa_user_id'] = user.id
-            request.session['otp_code'] = otp_code
-            request.session['otp_expires_at'] = time.time() + 300
-            request.session['otp_attempts'] = 0
-            request.session['otp_phone'] = phone_number
-            request.session['otp_sent_at'] = time.time()
-            
-            otp_service.send_otp_sms(phone_number, otp_code)
-            
-            return JsonResponse({
-                "success": True,
-                "step": "otp_required",
-                "phone_masked": otp_service.mask_phone_number(phone_number),
-                "message": f"Verification code sent to {otp_service.mask_phone_number(phone_number)}"
-            })
-        else:
-            return JsonResponse({
-                "success": False, 
-                "error": "Access denied. Only administrators have management privileges."
-            }, status=403)
-    else:
+    if user is None:
         return JsonResponse({"success": False, "error": "Invalid username or password"}, status=401)
 
-@csrf_exempt
-def api_auth_verify_otp_view(request):
-    if request.method != "POST":
-        return JsonResponse({"success": False, "error": "POST method required"}, status=405)
-        
-    user_id = request.session.get('pre_2fa_user_id')
-    if not user_id:
-        return JsonResponse({"success": False, "error": "No pending 2FA login session found. Please log in again."}, status=400)
-        
-    otp = ""
-    if request.content_type == "application/json" and request.body:
-        try:
-            body_data = json.loads(request.body)
-            otp = str(body_data.get("otp", "")).strip()
-        except Exception:
-            pass
-    if not otp:
-        otp = request.POST.get("otp", "").strip()
-        
-    if not otp:
-        return JsonResponse({"success": False, "error": "OTP is required"}, status=400)
-        
-    actual_otp = request.session.get('otp_code')
-    expires_at = request.session.get('otp_expires_at', 0)
-    attempts = request.session.get('otp_attempts', 0)
-    
-    if attempts >= 3:
-        for key in ['pre_2fa_user_id', 'otp_code', 'otp_expires_at', 'otp_attempts', 'otp_phone', 'otp_sent_at']:
-            request.session.pop(key, None)
-        return JsonResponse({"success": False, "error": "Maximum OTP attempts exceeded. Please log in again."}, status=403)
-        
-    if time.time() > expires_at:
-        return JsonResponse({"success": False, "error": "OTP has expired. Please request a new one."}, status=400)
-        
-    if otp == actual_otp:
-        User = get_user_model()
-        try:
-            user = User.objects.get(id=user_id)
-            auth_login(request, user)
-            for key in ['pre_2fa_user_id', 'otp_code', 'otp_expires_at', 'otp_attempts', 'otp_phone', 'otp_sent_at']:
-                request.session.pop(key, None)
-            return JsonResponse({
-                "success": True,
-                "is_authenticated": True,
-                "is_admin": True,
-                "username": user.username,
-                "message": f"2-Step verification successful! Welcome, {user.username}."
-            })
-        except User.DoesNotExist:
-            return JsonResponse({"success": False, "error": "User not found"}, status=404)
-    else:
-        attempts += 1
-        request.session['otp_attempts'] = attempts
-        remaining = 3 - attempts
-        if remaining <= 0:
-            for key in ['pre_2fa_user_id', 'otp_code', 'otp_expires_at', 'otp_attempts', 'otp_phone', 'otp_sent_at']:
-                request.session.pop(key, None)
-            return JsonResponse({"success": False, "error": "Maximum OTP attempts exceeded. Please log in again."}, status=403)
-        return JsonResponse({"success": False, "error": f"Invalid verification code. {remaining} attempt(s) remaining."}, status=400)
+    role = user_role(user)
+    if expected_role and role != expected_role:
+        if role == ROLE_ADMIN:
+            return JsonResponse({"success": False, "error": "Administrators must sign in from the admin login page."}, status=403)
+        return JsonResponse({"success": False, "error": "This is an administrator account. Use the admin login page."}, status=403)
 
-@csrf_exempt
-def api_auth_resend_otp_view(request):
-    user_id = request.session.get('pre_2fa_user_id')
-    if not user_id:
-        return JsonResponse({"success": False, "error": "No pending 2FA login session found."}, status=400)
-        
-    last_sent = request.session.get('otp_sent_at', 0)
-    if time.time() - last_sent < 60:
-        wait = int(60 - (time.time() - last_sent))
-        return JsonResponse({"success": False, "error": f"Please wait {wait} seconds before requesting a new OTP."}, status=429)
-        
-    phone_number = request.session.get('otp_phone', os.getenv("ADMIN_PHONE_NUMBER", "+919876543210").strip())
-    new_otp = otp_service.generate_otp()
-    request.session['otp_code'] = new_otp
-    request.session['otp_expires_at'] = time.time() + 300
-    request.session['otp_attempts'] = 0
-    request.session['otp_sent_at'] = time.time()
-    
-    otp_service.send_otp_sms(phone_number, new_otp)
-    return JsonResponse({"success": True, "message": f"New OTP sent to {otp_service.mask_phone_number(phone_number)}"})
+    auth_login(request, user)
+    return JsonResponse({
+        "success": True,
+        "is_authenticated": True,
+        "is_admin": role == ROLE_ADMIN,
+        "role": role,
+        "username": user.username,
+        "message": f"Login successful. Welcome, {user.username}."
+    })
+
 
 def api_auth_status_view(request):
     is_auth = request.user.is_authenticated
-    is_staff = is_auth and request.user.is_staff
+    role = user_role(request.user) if is_auth else ""
     return JsonResponse({
         "success": True,
         "is_authenticated": is_auth,
-        "is_admin": is_staff,
+        "is_admin": is_auth and request.user.is_staff,
+        "role": role,
         "username": request.user.username if is_auth else ""
     })
+
 
 @csrf_exempt
 def api_auth_logout_view(request):
     auth_logout(request)
     return JsonResponse({"success": True, "message": "Successfully logged out"})
+
+
+# ================= ADMIN: USER MANAGEMENT (SINGLE-ADMIN ENFORCED) =================
+
+def _serialize_account(user, request):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "is_admin": user.is_staff,
+        "is_active": user.is_active,
+        "last_login": user.last_login.isoformat() if user.last_login else None,
+        "is_self": request.user.is_authenticated and user.id == request.user.id,
+    }
+
+
+@csrf_exempt
+@require_admin_api
+def api_users_view(request):
+    User = get_user_model()
+    accounts = [
+        _serialize_account(u, request)
+        for u in User.objects.all().order_by("is_staff", "username")
+    ]
+    return JsonResponse({
+        "success": True,
+        "users": accounts,
+        "admin_username": next((u["username"] for u in accounts if u["is_admin"]), ""),
+    })
+
+
+@csrf_exempt
+@require_admin_api
+def api_create_user_view(request):
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "POST method required"}, status=405)
+
+    data = _request_data(request)
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    email = (data.get("email") or "").strip()
+
+    if not username or not password:
+        return JsonResponse({"success": False, "error": "Username and password are required"}, status=400)
+
+    User = get_user_model()
+    if User.objects.filter(username__iexact=username).exists():
+        return JsonResponse({"success": False, "error": f"The username '{username}' is already taken."}, status=400)
+
+    try:
+        validate_password(password)
+    except ValidationError as exc:
+        return JsonResponse({"success": False, "error": " ".join(exc.messages)}, status=400)
+
+    # Regular accounts only: the app is locked to exactly one administrator profile.
+    user = User.objects.create_user(username=username, email=email, password=password)
+    user.is_staff = False
+    user.is_superuser = False
+    user.save()
+
+    return JsonResponse({
+        "success": True,
+        "message": f"User '{username}' created successfully.",
+        "user": _serialize_account(user, request)
+    }, status=201)
+
+
+@csrf_exempt
+@require_admin_api
+def api_delete_user_view(request, user_id):
+    if request.method not in ["POST", "DELETE"]:
+        return JsonResponse({"success": False, "error": "Invalid method"}, status=405)
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({"success": False, "error": "User not found"}, status=404)
+
+    if user.is_staff:
+        return JsonResponse({"success": False, "error": "The administrator profile cannot be removed."}, status=400)
+    if request.user.is_authenticated and user.id == request.user.id:
+        return JsonResponse({"success": False, "error": "You cannot delete the account you are signed in with."}, status=400)
+
+    username = user.username
+    user.delete()
+    return JsonResponse({"success": True, "message": f"User '{username}' deleted."})
+
+
+@csrf_exempt
+@require_admin_api
+def api_reset_user_password_view(request, user_id):
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "POST method required"}, status=405)
+
+    data = _request_data(request)
+    password = data.get("password") or ""
+    if not password:
+        return JsonResponse({"success": False, "error": "New password is required"}, status=400)
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({"success": False, "error": "User not found"}, status=404)
+
+    try:
+        validate_password(password)
+    except ValidationError as exc:
+        return JsonResponse({"success": False, "error": " ".join(exc.messages)}, status=400)
+
+    user.set_password(password)
+    user.save()
+    return JsonResponse({"success": True, "message": f"Password updated for '{user.username}'."})
+
+
+@csrf_exempt
+@require_admin_api
+def api_toggle_user_active_view(request, user_id):
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "POST method required"}, status=405)
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({"success": False, "error": "User not found"}, status=404)
+
+    if user.is_staff:
+        return JsonResponse({"success": False, "error": "The administrator profile cannot be deactivated."}, status=400)
+    if request.user.is_authenticated and user.id == request.user.id:
+        return JsonResponse({"success": False, "error": "You cannot deactivate the account you are signed in with."}, status=400)
+
+    user.is_active = not user.is_active
+    user.save()
+    state = "activated" if user.is_active else "deactivated"
+    return JsonResponse({"success": True, "message": f"User '{user.username}' {state}."})
 
 def pwa_manifest_view(request):
     manifest = {
@@ -317,17 +365,20 @@ def health_check_view(request):
 
 # ================= PAGE VIEWS =================
 
+@require_login_page
 def index_view(request):
     stats = mongo.get_stats()
     subjects = mongo.get_all_subjects_with_stats()
     return render(request, "documents/index.html", {
         "stats": stats,
         "subjects": subjects,
-        "is_admin": request.user.is_authenticated and request.user.is_staff
+        "is_admin": request.user.is_staff,
+        "username": request.user.username,
     })
 
 # ================= SUBJECT & FOLDER API =================
 
+@require_login_api
 def api_subjects_view(request):
     subjects = mongo.get_all_subjects_with_stats()
     stats = mongo.get_stats()
@@ -335,14 +386,12 @@ def api_subjects_view(request):
         "success": True,
         "subjects": subjects,
         "stats": stats,
-        "is_admin": request.user.is_authenticated and request.user.is_staff
+        "is_admin": request.user.is_staff
     })
 
 @csrf_exempt
+@require_admin_api
 def api_create_subject_view(request):
-    if not (request.user.is_authenticated and request.user.is_staff):
-        return JsonResponse({"success": False, "error": "Unauthorized. Only administrators can create subjects."}, status=403)
-        
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "POST method required"}, status=405)
         
@@ -356,10 +405,8 @@ def api_create_subject_view(request):
         return JsonResponse({"success": False, "error": str(e)}, status=400)
 
 @csrf_exempt
+@require_admin_api
 def api_delete_subject_view(request, subject_name):
-    if not (request.user.is_authenticated and request.user.is_staff):
-        return JsonResponse({"success": False, "error": "Unauthorized. Only administrators can delete subjects."}, status=403)
-        
     if request.method not in ["POST", "DELETE"]:
         return JsonResponse({"success": False, "error": "Invalid method"}, status=405)
         
@@ -370,10 +417,8 @@ def api_delete_subject_view(request, subject_name):
         return JsonResponse({"success": False, "error": str(e)}, status=400)
 
 @csrf_exempt
+@require_admin_api
 def api_create_folder_view(request):
-    if not (request.user.is_authenticated and request.user.is_staff):
-        return JsonResponse({"success": False, "error": "Unauthorized. Only administrators can create folders."}, status=403)
-        
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "POST method required"}, status=405)
         
@@ -387,10 +432,8 @@ def api_create_folder_view(request):
         return JsonResponse({"success": False, "error": str(e)}, status=400)
 
 @csrf_exempt
+@require_admin_api
 def api_delete_folder_view(request):
-    if not (request.user.is_authenticated and request.user.is_staff):
-        return JsonResponse({"success": False, "error": "Unauthorized. Only administrators can delete folders."}, status=403)
-        
     if request.method not in ["POST", "DELETE"]:
         return JsonResponse({"success": False, "error": "Invalid method"}, status=405)
         
@@ -399,12 +442,13 @@ def api_delete_folder_view(request):
     
     try:
         mongo.delete_folder(subject_name=subject, folder_name=folder_name)
-        return JsonResponse({"success": True, "message": f"Folder '{folder_name}' deleted."})
+        return JsonResponse({"success": True, "message": f"Folder '{folder_name}' deleted from '{subject}'."})
     except Exception as e:
         return JsonResponse({"success": False, "error": str(e)}, status=400)
 
 # ================= DOCUMENT API =================
 
+@require_login_api
 def api_documents_view(request):
     query = request.GET.get("q", "").strip()
     subject = request.GET.get("subject", "").strip()
@@ -419,18 +463,12 @@ def api_documents_view(request):
         "count": len(docs),
         "documents": docs,
         "stats": stats,
-        "is_admin": request.user.is_authenticated and request.user.is_staff
+        "is_admin": request.user.is_staff
     })
 
 @csrf_exempt
+@require_admin_api
 def api_upload_view(request):
-    # Enforce Admin Check
-    if not (request.user.is_authenticated and request.user.is_staff):
-        return JsonResponse({
-            "success": False, 
-            "error": "Access Denied: Only authenticated administrators can upload documents."
-        }, status=403)
-    
     if request.method != "POST":
         return JsonResponse({"success": False, "error": "POST method required"}, status=405)
     
@@ -486,14 +524,8 @@ def api_upload_view(request):
         return JsonResponse({"success": False, "error": str(e)}, status=500)
 
 @csrf_exempt
+@require_admin_api
 def api_delete_view(request, file_id):
-    # Enforce Admin Check
-    if not (request.user.is_authenticated and request.user.is_staff):
-        return JsonResponse({
-            "success": False, 
-            "error": "Access Denied: Only authenticated administrators can delete documents."
-        }, status=403)
-
     if request.method not in ["POST", "DELETE"]:
         return JsonResponse({"success": False, "error": "Invalid request method"}, status=405)
         
@@ -512,6 +544,7 @@ def _stream_gridfs_file(grid_out, chunk_size=256 * 1024):
             break
         yield chunk
 
+@require_login_page
 def view_file_inline_view(request, file_id):
     grid_out = mongo.get_document(file_id)
     if not grid_out:
@@ -528,6 +561,7 @@ def view_file_inline_view(request, file_id):
     response["Content-Length"] = grid_out.length
     return response
 
+@require_login_page
 def download_file_view(request, file_id):
     grid_out = mongo.get_document(file_id)
     if not grid_out:
@@ -595,6 +629,7 @@ def _extract_pptx_slides(file_bytes):
         slides_data.append(slide_info)
     return slides_data
 
+@require_login_api
 def api_preview_content_view(request, file_id):
     grid_out = mongo.get_document(file_id)
     if not grid_out:
@@ -700,6 +735,7 @@ def api_preview_content_view(request, file_id):
 
 # ================= GEMINI AI ACADEMIC TUTOR VIEWS =================
 
+@require_login_api
 def api_ai_status_view(request):
     """
     Returns whether the Gemini API key is configured and active.
@@ -712,6 +748,7 @@ def api_ai_status_view(request):
     })
 
 @csrf_exempt
+@require_login_api
 def api_ai_chat_view(request):
     """
     AI Academic Tutor query handler. Supports general questions or
